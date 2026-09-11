@@ -6,7 +6,7 @@ import { Code, Video, Bot, Database, ExternalLink } from 'lucide-react';
 interface IntegrationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  serviceType: 'zegocloud' | 'gemini' | 'firebase';
+  serviceType: 'zegocloud' | 'gemini' | 'supabase';
   featureTitle: string;
 }
 
@@ -43,17 +43,17 @@ export const IntegrationModal: React.FC<IntegrationModalProps> = ({
         'Configure system instructions for nursing & NCLEX tutoring'
       ]
     },
-    firebase: {
+    supabase: {
       icon: Database,
-      color: 'text-amber-500 bg-amber-500/10 border-amber-200 dark:border-amber-900',
-      title: 'Firebase Backend Integration Placeholder',
-      filePath: 'src/services/firebase/firestoreService.ts & authService.ts',
-      description: `Data is currently stored safely in browser LocalStorage. Replace mock handlers with Firebase to sync across devices in real-time.`,
+      color: 'text-emerald-500 bg-emerald-500/10 border-emerald-200 dark:border-emerald-900',
+      title: 'Supabase Backend & Paystack Integration',
+      filePath: 'src/services/supabase/dbService.ts & paystackService.ts',
+      description: `Backend services are powered by Supabase with Row Level Security (RLS) policies and Paystack edge function integrations.`,
       todoList: [
-        'Initialize Firebase Project & copy firebaseConfig credentials',
-        'Install SDK: npm install firebase',
-        'Connect Auth in src/services/firebase/authService.ts',
-        'Connect Firestore collections in src/services/firebase/firestoreService.ts'
+        'Initialize Supabase Project & copy VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY credentials',
+        'Run database schema migration using supabase/schema.sql',
+        'Deploy Paystack Edge Functions using: supabase functions deploy',
+        'Set PAYSTACK_SECRET_KEY secret in Supabase Dashboard'
       ]
     }
   };

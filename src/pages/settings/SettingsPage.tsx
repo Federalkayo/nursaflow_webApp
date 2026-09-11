@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Settings, Sun, Moon, Bell, Shield, User, Code, CheckSquare, Square, Info } from 'lucide-react';
+import { Settings, Sun, Moon, User, Code, Square, CreditCard, Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
+import { paystackService } from '../../services/paystack/paystackService';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
@@ -9,6 +11,7 @@ import { Input } from '../../components/common/Input';
 export const SettingsPage: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const { student, updateProfile } = useAuth();
+  const { isPro, subscription, isLoading: isSubLoading } = useSubscriptionStatus();
 
   const [name, setName] = useState(student?.name || '');
   const [school, setSchool] = useState(student?.school || '');
@@ -16,6 +19,8 @@ export const SettingsPage: React.FC = () => {
   const [targetCgpa, setTargetCgpa] = useState(student?.targetCgpa || 4.50);
 
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [checkoutLoadingPlan, setCheckoutLoadingPlan] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,15 +34,41 @@ export const SettingsPage: React.FC = () => {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
+  const handleSubscribe = async (amountKobo: number, planCode: string) => {
+    setCheckoutError(null);
+    const userEmail = student?.email;
+
+    if (!userEmail) {
+      setCheckoutError('User email address is missing. Please update your profile first.');
+      return;
+    }
+
+    setCheckoutLoadingPlan(planCode);
+    try {
+      const response = await paystackService.initializeTransaction(userEmail, amountKobo, planCode);
+      if (response && response.authorization_url) {
+        window.location.href = response.authorization_url;
+      } else {
+        throw new Error('No authorization URL returned from Paystack.');
+      }
+    } catch (err: unknown) {
+      console.error('[Checkout Error]:', err);
+      const msg = err instanceof Error ? err.message : 'Failed to initialize Paystack checkout.';
+      setCheckoutError(msg);
+    } finally {
+      setCheckoutLoadingPlan(null);
+    }
+  };
+
   const integrationChecklist = [
-    { title: 'Firebase Authentication (Email & Password / Google Auth)', file: 'src/services/firebase/authService.ts' },
-    { title: 'Cloud Firestore Database (Semesters, Notes, Posts, Quizzes)', file: 'src/services/firebase/firestoreService.ts' },
-    { title: 'Firebase Storage (Profile Photos & PDF Notes Attachments)', file: 'src/services/firebase/storageService.ts' },
-    { title: 'Firebase Cloud Messaging (FCM Push Notifications)', file: 'src/services/firebase/notificationService.ts' },
+    { title: 'Supabase Authentication (Email & Password / OAuth)', file: 'src/services/supabase/authService.ts' },
+    { title: 'Supabase Database & Realtime (Profiles, Quizzes, Streaks)', file: 'src/services/supabase/dbService.ts' },
+    { title: 'Supabase Storage (Profile Avatars & PDF Attachments)', file: 'src/services/supabase/storageService.ts' },
+    { title: 'Paystack Subscription Service (Edge Functions)', file: 'src/services/paystack/paystackService.ts' },
     { title: 'Gemini AI API (@google/genai SDK for AI Tutor)', file: 'src/services/gemini/geminiService.ts' },
     { title: 'ZEGOCLOUD WebRTC Video/Audio Call Integration', file: 'src/services/zegocloud/callService.ts' },
     { title: 'ZEGOCLOUD Live Group Study Rooms', file: 'src/services/zegocloud/roomService.ts' },
-    { title: 'Production Security Rules & Environment Variables', file: 'firestore.rules' },
+    { title: 'Database Schema & RLS Security Policies', file: 'supabase/schema.sql' },
   ];
 
   return (
@@ -48,9 +79,113 @@ export const SettingsPage: React.FC = () => {
           <span>App Preferences & Developer Settings</span>
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Manage your student profile, theme appearance, notifications & backend integration status.
+          Manage your student profile, theme appearance, membership subscription & backend integration status.
         </p>
       </div>
+
+      {/* Paystack Membership & Subscription Card */}
+      <Card className="space-y-6 border-brand-500/30 dark:border-brand-900/50">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <CreditCard className="w-5 h-5 text-brand-500" />
+            <span>NursaFlow Membership & Subscription</span>
+          </h3>
+
+          {isSubLoading ? (
+            <span className="text-xs font-semibold text-slate-400">Checking status...</span>
+          ) : isPro ? (
+            <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Pro Active</span>
+            </span>
+          ) : (
+            <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+              Free Tier Student
+            </span>
+          )}
+        </div>
+
+        {checkoutError && (
+          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{checkoutError}</span>
+          </div>
+        )}
+
+        {isPro && subscription ? (
+          <div className="p-4 rounded-2xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-900 dark:text-white">Active Plan: {subscription.plan}</span>
+              <span className="text-slate-500 dark:text-slate-400">Ref: {subscription.paystack_reference || 'N/A'}</span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Your subscription is active until{' '}
+              <strong>
+                {subscription.current_period_end
+                  ? new Date(subscription.current_period_end).toLocaleDateString()
+                  : 'N/A'}
+              </strong>.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            {/* Monthly Plan */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-3 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Pro Monthly</h4>
+                  <Sparkles className="w-4 h-4 text-brand-500" />
+                </div>
+                <div className="mt-2 text-2xl font-extrabold text-slate-900 dark:text-white">
+                  ₦5,000 <span className="text-xs font-normal text-slate-400">/ month</span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Full access to unlimited AI Tutor questions, NCLEX prep tools, and live video study rooms.
+                </p>
+              </div>
+
+              <Button
+                variant="primary"
+                size="sm"
+                className="w-full mt-2"
+                isLoading={checkoutLoadingPlan === 'PLN_nursaflow_monthly'}
+                onClick={() => handleSubscribe(500000, 'PLN_nursaflow_monthly')}
+              >
+                Subscribe Monthly (₦5,000)
+              </Button>
+            </div>
+
+            {/* Annual Plan */}
+            <div className="p-4 rounded-2xl bg-brand-500/5 dark:bg-brand-500/10 border border-brand-500/30 space-y-3 flex flex-col justify-between relative overflow-hidden">
+              <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-brand-500 text-white uppercase tracking-wider">
+                Save 17%
+              </span>
+              <div>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Pro Annual</h4>
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                </div>
+                <div className="mt-2 text-2xl font-extrabold text-slate-900 dark:text-white">
+                  ₦50,000 <span className="text-xs font-normal text-slate-400">/ year</span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Best value! Includes full NursaFlow Pro features + priority AI tutor response.
+                </p>
+              </div>
+
+              <Button
+                variant="primary"
+                size="sm"
+                className="w-full mt-2 bg-gradient-to-r from-brand-600 to-teal-500"
+                isLoading={checkoutLoadingPlan === 'PLN_nursaflow_annual'}
+                onClick={() => handleSubscribe(5000000, 'PLN_nursaflow_annual')}
+              >
+                Subscribe Annual (₦50,000)
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* Theme Appearance Card */}
       <Card className="space-y-4">

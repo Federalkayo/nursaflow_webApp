@@ -13,7 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   HeartPulse,
-  Code
+  Code,
+  LogOut
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Avatar } from '../common/Avatar';
@@ -25,7 +26,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
-  const { student } = useAuth();
+  const { student, logout } = useAuth();
   const location = useLocation();
 
   const mainNavigation = [
@@ -146,18 +147,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse })
       {/* Student Profile Quick Footer */}
       {student && (
         <div className="p-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50">
-          <div className="flex items-center gap-3 p-2 rounded-xl">
-            <Avatar src={student.avatarUrl} name={student.name} size={collapsed ? 'sm' : 'md'} status="online" />
-            {!collapsed && (
-              <div className="flex flex-col min-w-0 flex-1">
-                <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                  {student.name}
-                </span>
-                <div className="flex items-center gap-1 text-[11px] text-amber-500 font-semibold mt-0.5">
-                  <Flame className="w-3.5 h-3.5 fill-amber-500" />
-                  <span>{student.studyStreakDays} Day Streak</span>
+          <div className="flex items-center justify-between gap-2 p-2 rounded-xl">
+            <div className="flex items-center gap-3 min-w-0">
+              <Avatar src={student.avatarUrl} name={student.name} size={collapsed ? 'sm' : 'md'} status="online" />
+              {!collapsed && (
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    {student.name}
+                  </span>
+                  <div className="flex items-center gap-1 text-[11px] text-amber-500 font-semibold mt-0.5">
+                    <Flame className="w-3.5 h-3.5 fill-amber-500" />
+                    <span>{student.studyStreakDays} Day Streak</span>
+                  </div>
                 </div>
-              </div>
+              )}
+            </div>
+
+            {!collapsed && (
+              <button
+                onClick={logout}
+                className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors shrink-0"
+                title="Sign Out / Logout"
+                aria-label="Sign Out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             )}
           </div>
         </div>

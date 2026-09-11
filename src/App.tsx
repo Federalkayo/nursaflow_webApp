@@ -28,6 +28,7 @@ import { UnitConverter } from './pages/clinical/UnitConverter';
 import { AiTutorPage } from './pages/ai-tutor/AiTutorPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { SettingsPage } from './pages/settings/SettingsPage';
+import { PaymentCallbackPage } from './pages/payment/PaymentCallbackPage';
 
 const ProtectedLayout: React.FC = () => {
   const { isAuthenticated } = useAuth();
@@ -66,10 +67,11 @@ const ProtectedLayout: React.FC = () => {
         <Route path="/clinical/apgar" element={<ApgarCalculator />} />
         <Route path="/clinical/converter" element={<UnitConverter />} />
 
-        {/* AI Tutor & Profile Routes */}
+        {/* AI Tutor, Profile & Subscription Routes */}
         <Route path="/ai-tutor" element={<AiTutorPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/payment/callback" element={<PaymentCallbackPage />} />
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

@@ -7,8 +7,11 @@ import { Avatar } from '../../components/common/Avatar';
 import { Badge } from '../../components/common/Badge';
 import { ProgressBar } from '../../components/common/ProgressBar';
 
+import { Button } from '../../components/common/Button';
+import { LogOut } from 'lucide-react';
+
 export const ProfilePage: React.FC = () => {
-  const { student } = useAuth();
+  const { student, logout } = useAuth();
   const { currentGpa, cgpa, flashcards, notes } = useData();
 
   const bookmarkedFlashcards = flashcards.filter((f) => f.isBookmarked);
@@ -18,22 +21,34 @@ export const ProfilePage: React.FC = () => {
     <div className="space-y-8 animate-in fade-in duration-300 max-w-5xl mx-auto">
       {/* Student Profile Overview Card */}
       <Card className="relative overflow-hidden p-6 sm:p-8 bg-gradient-to-r from-slate-900 via-brand-950 to-slate-900 text-white border-slate-800 space-y-6 shadow-xl">
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 text-center sm:text-left">
-          <Avatar src={student?.avatarUrl} name={student?.name || 'Nurse Maya'} size="xl" status="online" />
-          <div className="space-y-2 flex-1">
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-                {student?.name || 'Nightingale Maya'}
-              </h1>
-              <Badge variant="brand">{student?.level || '300 Level BSN'}</Badge>
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 text-center sm:text-left justify-between">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+            <Avatar src={student?.avatarUrl} name={student?.name || 'Nurse Maya'} size="xl" status="online" />
+            <div className="space-y-2 flex-1">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                  {student?.name || 'Nightingale Maya'}
+                </h1>
+                <Badge variant="brand">{student?.level || '300 Level BSN'}</Badge>
+              </div>
+              <p className="text-sm text-slate-300 font-medium">
+                {student?.school || 'Johns Hopkins School of Nursing'} • {student?.email}
+              </p>
+              <p className="text-xs text-slate-400">
+                Future Registered Nurse (RN) • Specialized in Adult Critical Care & Pharmacology.
+              </p>
             </div>
-            <p className="text-sm text-slate-300 font-medium">
-              {student?.school || 'Johns Hopkins School of Nursing'} • {student?.email}
-            </p>
-            <p className="text-xs text-slate-400">
-              Future Registered Nurse (RN) • Specialized in Adult Critical Care & Pharmacology.
-            </p>
           </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            icon={LogOut}
+            onClick={logout}
+            className="border-white/20 text-white hover:bg-white/10 shrink-0"
+          >
+            Sign Out
+          </Button>
         </div>
 
         {/* Quick Stats Grid */}

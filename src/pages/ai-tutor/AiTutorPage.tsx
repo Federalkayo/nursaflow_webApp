@@ -8,8 +8,13 @@ import { Avatar } from '../../components/common/Avatar';
 import { useAuth } from '../../context/AuthContext';
 import { IntegrationModal } from '../../components/feedback/IntegrationModal';
 
+import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
+import { NavLink } from 'react-router-dom';
+import { Crown } from 'lucide-react';
+
 export const AiTutorPage: React.FC = () => {
   const { student } = useAuth();
+  const { isPro } = useSubscriptionStatus();
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'msg_1',
@@ -65,15 +70,35 @@ export const AiTutorPage: React.FC = () => {
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
             <Bot className="w-8 h-8 text-brand-500" />
             <span>NursaFlow AI Nursing Tutor</span>
+            {isPro ? (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center gap-1">
+                <Crown className="w-3.5 h-3.5 fill-amber-500" />
+                <span>PRO</span>
+              </span>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                Free Tier
+              </span>
+            )}
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             Powered by Gemini AI abstraction layer • NCLEX-RN tutoring & clinical explanations.
           </p>
         </div>
 
-        <Button variant="outline" size="sm" icon={Code} onClick={() => setShowGeminiModal(true)}>
-          Gemini API Specs
-        </Button>
+        <div className="flex items-center gap-2">
+          {!isPro && (
+            <NavLink to="/settings">
+              <Button variant="primary" size="sm" icon={Crown} className="bg-gradient-to-r from-amber-500 to-brand-600">
+                Upgrade to Pro
+              </Button>
+            </NavLink>
+          )}
+
+          <Button variant="outline" size="sm" icon={Code} onClick={() => setShowGeminiModal(true)}>
+            Gemini Specs
+          </Button>
+        </div>
       </div>
 
       {/* Suggested Prompt Pills */}

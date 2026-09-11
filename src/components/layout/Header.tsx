@@ -11,9 +11,13 @@ interface HeaderProps {
   onOpenMobileDrawer: () => void;
 }
 
+import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
+import { Crown } from 'lucide-react';
+
 export const Header: React.FC<HeaderProps> = ({ onOpenMobileDrawer }) => {
   const { theme, toggleTheme } = useTheme();
   const { student, logout } = useAuth();
+  const { isPro } = useSubscriptionStatus();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
   const [showIntegrationModal, setShowIntegrationModal] = useState(false);
@@ -122,8 +126,13 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileDrawer }) => {
 
         {/* Student Avatar Header Quick Link */}
         {student && (
-          <NavLink to="/profile" className="ml-1 flex items-center gap-2">
+          <NavLink to="/profile" className="ml-1 flex items-center gap-2 relative">
             <Avatar src={student.avatarUrl} name={student.name} size="sm" />
+            {isPro && (
+              <span className="absolute -top-1 -right-1 p-0.5 rounded-full bg-amber-500 text-white shadow-sm ring-2 ring-white dark:ring-slate-900" title="NursaFlow Pro Active">
+                <Crown className="w-3 h-3 fill-white" />
+              </span>
+            )}
           </NavLink>
         )}
       </div>
@@ -132,7 +141,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileDrawer }) => {
       <IntegrationModal
         isOpen={showIntegrationModal}
         onClose={() => setShowIntegrationModal(false)}
-        serviceType="firebase"
+        serviceType="supabase"
         featureTitle="NursaFlow Architecture Integrations"
       />
     </header>
