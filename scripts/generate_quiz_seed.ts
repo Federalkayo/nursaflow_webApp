@@ -96,9 +96,23 @@ async function generateWithGemini(apiKey: string, topicId: string): Promise<Quiz
   ]
   Do not include markdown code block formatting like \`\`\`json. Output raw JSON only.`;
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+  const isAq = apiKey.startsWith('AQ');
+  const url = isAq
+    ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`
+    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-goog-api-key': apiKey,
+  };
+
+  if (isAq) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }]
     })

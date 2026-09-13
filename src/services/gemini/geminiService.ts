@@ -9,8 +9,10 @@ const STORAGE_KEY = 'nursaflow_gemini_api_key';
 
 /**
  * Sanitizes and cleans an API key input:
+ * - Supports traditional AIza... and new AQ... Google Gemini API key formats
  * - Trims leading/trailing whitespace, tabs, and line breaks
  * - Removes enclosing quotes if present (e.g. "AQ..." or 'AQ...')
+ * - Ensures zero length or prefix restrictions
  */
 export function sanitizeApiKey(rawKey: string): string {
   if (!rawKey) return '';
@@ -63,6 +65,28 @@ export const geminiService = {
     return Boolean(this.getApiKey());
   },
 
+  /**
+   * Builds the API request headers and URL supporting both AIza... and modern AQ... keys
+   */
+  buildApiRequest(model: string, apiKey: string): { url: string; headers: Record<string, string> } {
+    const isAqKey = apiKey.startsWith('AQ');
+    const baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    
+    // Omit ?key= parameter for AQ keys to prevent 401/403 parameter rejections
+    const url = isAqKey ? baseUrl : `${baseUrl}?key=${apiKey}`;
+    
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    };
+
+    if (isAqKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    return { url, headers };
+  },
+
   async testApiKey(customKey?: string): Promise<{ success: boolean; message: string; model?: string }> {
     const keyToTest = customKey ? sanitizeApiKey(customKey) : this.getApiKey();
     if (!keyToTest) {
@@ -71,13 +95,10 @@ export const geminiService = {
 
     for (const model of GEMINI_MODELS) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keyToTest}`;
+        const { url, headers } = this.buildApiRequest(model, keyToTest);
         const response = await fetch(url, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': keyToTest,
-          },
+          headers,
           body: JSON.stringify({
             contents: [
               {
@@ -137,14 +158,7 @@ export const geminiService = {
 
       for (const model of GEMINI_MODELS) {
         try {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-
-          if (apiKey.startsWith('AQ')) {
-            headers['Authorization'] = `Bearer ${apiKey}`;
-          } else {
-            headers['x-goog-api-key'] = apiKey;
-          }
+          const { url, headers } = this.buildApiRequest(model, apiKey);
 
           const res = await fetch(url, {
             method: 'POST',
@@ -178,11 +192,11 @@ export const geminiService = {
     if (apiKey) {
       try {
         const prompt = `Generate ${count} NCLEX-RN style flashcards on "${topic}". Return JSON array: [{"question": "...", "answer": "..."}]`;
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const { url, headers } = this.buildApiRequest('gemini-1.5-flash', apiKey);
 
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }] }),
         });
 

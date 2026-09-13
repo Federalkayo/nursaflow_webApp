@@ -156,7 +156,7 @@ export const IntegrationModal: React.FC<IntegrationModalProps> = ({
                   type="password"
                   value={apiKeyInput}
                   onChange={(e) => setApiKeyInput(e.target.value)}
-                  placeholder="Paste your Gemini API key (AIzaSy...)"
+                  placeholder="Paste your Gemini API key (AQ... or AIza...)"
                   className="flex-1 px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
                 {apiKeyInput && (
