@@ -1,0 +1,22 @@
+# Supabase CLI project configuration.
+# This file is required for `supabase link` / `supabase functions deploy` to work.
+# project_id must match your Supabase project ref (the subdomain in your
+# VITE_SUPABASE_URL, e.g. https://<project_id>.supabase.co).
+project_id = "dnwozxhtbgbpkdvknajh"
+
+[functions.groq-tutor]
+verify_jwt = true
+
+[functions.gemini-tutor]
+verify_jwt = true
+
+[functions.paystack-initialize]
+verify_jwt = true
+
+[functions.paystack-verify]
+verify_jwt = true
+
+[functions.paystack-webhook]
+# Paystack calls this directly (no Supabase-issued JWT), so it must not
+# require a Supabase auth token.
+verify_jwt = false

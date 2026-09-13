@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "lint": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "supabase:link": "supabase link --project-ref dnwozxhtbgbkpdvknajh",
+    "supabase:secrets": "supabase secrets set GROQ_API_KEY=$GROQ_API_KEY",
+    "deploy:groq-tutor": "supabase functions deploy groq-tutor"
   },
   "dependencies": {
     "@google/genai": "^0.1.1",
