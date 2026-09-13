@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Bot, Send, Sparkles, CheckCircle, Crown, AlertTriangle } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { groqService } from '../../services/groq/groqService';
 import { ChatMessage } from '../../types';
 import { Card } from '../../components/common/Card';
@@ -10,75 +12,63 @@ import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
 import { NavLink } from 'react-router-dom';
 
 /**
- * Renders bold Markdown and headers nicely formatted in React JSX
+ * Renders full Markdown (bold, headers, lists, and GFM tables) as styled JSX.
+ * Uses react-markdown + remark-gfm so tables ( | col | col | ) render as real
+ * <table> elements instead of raw pipe-delimited text.
  */
 const FormattedMessage: React.FC<{ text: string }> = ({ text }) => {
-  const lines = text.split('\n');
-
-  const renderBoldText = (str: string) => {
-    const parts = str.split(/(\*\*.*?\*\*)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return (
-          <strong key={i} className="font-semibold text-slate-900 dark:text-white">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-      return part;
-    });
-  };
-
   return (
-    <div className="space-y-2 leading-relaxed">
-      {lines.map((line, idx) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={idx} className="h-1" />;
-
-        if (trimmed.startsWith('### ')) {
-          return (
-            <h3 key={idx} className="text-base font-bold text-brand-600 dark:text-brand-400 mt-2 mb-1">
-              {trimmed.replace(/^###\s+/, '')}
-            </h3>
-          );
-        }
-
-        if (trimmed.startsWith('## ')) {
-          return (
-            <h2 key={idx} className="text-lg font-extrabold text-slate-900 dark:text-white mt-3 mb-1">
-              {trimmed.replace(/^##\s+/, '')}
-            </h2>
-          );
-        }
-
-        if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
-          const content = trimmed.replace(/^[\*\-]\s+/, '');
-          return (
-            <div key={idx} className="ml-3 flex items-start gap-2 text-sm">
+    <div className="space-y-2 leading-relaxed text-sm [&_p]:my-1">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => (
+            <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mt-3 mb-1">{children}</h2>
+          ),
+          h2: ({ children }) => (
+            <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mt-3 mb-1">{children}</h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="text-base font-bold text-brand-600 dark:text-brand-400 mt-2 mb-1">{children}</h3>
+          ),
+          strong: ({ children }) => (
+            <strong className="font-semibold text-slate-900 dark:text-white">{children}</strong>
+          ),
+          ul: ({ children }) => <ul className="space-y-1 ml-1">{children}</ul>,
+          ol: ({ children }) => <ol className="space-y-1 ml-1 list-none">{children}</ol>,
+          li: ({ children }) => (
+            <li className="ml-3 flex items-start gap-2">
               <span className="text-brand-500 font-bold">•</span>
-              <span>{renderBoldText(content)}</span>
+              <span>{children}</span>
+            </li>
+          ),
+          table: ({ children }) => (
+            <div className="overflow-x-auto my-2 rounded-lg border border-slate-200 dark:border-slate-700">
+              <table className="min-w-full text-xs sm:text-sm border-collapse">{children}</table>
             </div>
-          );
-        }
-
-        if (/^\d+\.\s+/.test(trimmed)) {
-          const match = trimmed.match(/^(\d+\.)\s+(.*)/);
-          if (match) {
-            return (
-              <div key={idx} className="ml-3 flex items-start gap-2 text-sm">
-                <span className="text-brand-600 font-bold shrink-0">{match[1]}</span>
-                <span>{renderBoldText(match[2])}</span>
-              </div>
-            );
-          }
-        }
-
-        return (
-          <p key={idx} className="text-sm">
-            {renderBoldText(trimmed)}
-          </p>
-        );
-      })}
+          ),
+          thead: ({ children }) => (
+            <thead className="bg-slate-100 dark:bg-slate-800">{children}</thead>
+          ),
+          th: ({ children }) => (
+            <th className="px-3 py-2 text-left font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-700">
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td className="px-3 py-2 align-top border-b border-slate-100 dark:border-slate-800">{children}</td>
+          ),
+          tr: ({ children }) => <tr>{children}</tr>,
+          p: ({ children }) => <p className="text-sm">{children}</p>,
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noreferrer" className="text-brand-600 underline">
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 };
