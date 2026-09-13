@@ -74,7 +74,7 @@ export const SettingsPage: React.FC = () => {
     { title: 'Supabase Database & Realtime (Profiles, Quizzes, Streaks)', file: 'src/services/supabase/dbService.ts' },
     { title: 'Supabase Storage (Profile Avatars & PDF Attachments)', file: 'src/services/supabase/storageService.ts' },
     { title: 'Paystack Subscription Service (Edge Functions)', file: 'src/services/paystack/paystackService.ts' },
-    { title: 'Gemini AI API (@google/genai SDK for AI Tutor)', file: 'src/services/gemini/geminiService.ts' },
+    { title: 'Groq AI Tutor (Server-Side Edge Function, Zero Client Keys)', file: 'src/services/groq/groqService.ts' },
     { title: 'ZEGOCLOUD WebRTC Video/Audio Call Integration', file: 'src/services/zegocloud/callService.ts' },
     { title: 'ZEGOCLOUD Live Group Study Rooms', file: 'src/services/zegocloud/roomService.ts' },
     { title: 'Database Schema & RLS Security Policies', file: 'supabase/schema.sql' },
