@@ -24,7 +24,7 @@ End your response with a JSON block at the very end formatted as:
 \`\`\`
 If you cannot generate JSON at the end, just provide high-yield follow-up suggestions in text.`;
 
-const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {

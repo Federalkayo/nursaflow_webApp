@@ -61,7 +61,7 @@ export const IntegrationModal: React.FC<IntegrationModalProps> = ({
       description: `NursaFlow AI Nursing Tutor operates on a secure zero-client-key architecture. All AI prompts are processed server-side via Supabase Edge Function (groq-tutor) using Groq AI (${groqService.getModel()}). Zero API keys are shipped to client browser bundles.`,
       todoList: [
         'Set server-side secret using Supabase CLI: supabase secrets set GROQ_API_KEY=gsk_...',
-        'Model selection configured via VITE_GROQ_MODEL (default: llama-3.3-70b-versatile)',
+        'Model selection configured via VITE_GROQ_MODEL (default: openai/gpt-oss-120b)',
         'Requests proxied server-side via supabase.functions.invoke("groq-tutor")',
         'Full OWASP security compliance: Zero client-side API key leakage',
       ],
