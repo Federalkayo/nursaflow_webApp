@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { Semester, Course, NursingSubject, Flashcard, StudyPlan, StudyPlanTask, NursingNote, CommunityPost, Comment } from '../../types';
+import { Semester, Course, NursingSubject, Flashcard, StudyPlan, StudyPlanTask, NursingNote, CommunityPost, Comment, StudyGroup, DirectMessage, Conversation } from '../../types';
 import { INITIAL_SUBJECTS } from '../../data/mockSubjects';
 import { INITIAL_FLASHCARDS } from '../../data/mockFlashcards';
 import { INITIAL_NOTES } from '../../data/mockNotes';
@@ -269,6 +269,36 @@ export const dbService = {
       throw error;
     }
     return data;
+  },
+
+  async searchProfiles(searchQuery: string, currentUserId?: string): Promise<Array<{ id: string; name: string; email: string; school: string; level: string; avatarUrl: string }>> {
+    if (!searchQuery || searchQuery.trim().length === 0) return [];
+    
+    const queryTerm = `%${searchQuery.trim()}%`;
+    let builder = supabase
+      .from('profiles')
+      .select('id, full_name, school, level')
+      .ilike('full_name', queryTerm)
+      .limit(10);
+
+    if (currentUserId) {
+      builder = builder.neq('id', currentUserId);
+    }
+
+    const { data, error } = await builder;
+    if (error) {
+      console.error('[Supabase DB Error] searchProfiles:', error);
+      return [];
+    }
+
+    return (data || []).map((p: any) => ({
+      id: p.id,
+      name: p.full_name || 'Nursing Student',
+      email: '',
+      school: p.school || 'Nursing Academy',
+      level: p.level || 'BSN Student',
+      avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(p.full_name || p.id)}`,
+    }));
   },
 
   // ==========================================
@@ -1196,18 +1226,361 @@ export const dbService = {
     return `note_${Date.now()}`;
   },
 
-  async createCommunityPost(post: Partial<CommunityPost>): Promise<string> {
-    console.log(`[Supabase DB] Publishing community post:`, post);
-    return `post_${Date.now()}`;
+  // ==========================================
+  // 6. COMMUNITY POSTS, COMMENTS, LIKES
+  // ==========================================
+  async getPosts(page = 0, pageSize = 10, groupId?: string, userId?: string): Promise<CommunityPost[]> {
+    const offset = page * pageSize;
+    let query = supabase
+      .from('community_posts')
+      .select('*, author:profiles!author_id(full_name, level, school), post_likes(user_id)')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1);
+
+    if (groupId) {
+      query = query.eq('group_id', groupId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('[Supabase DB Error] getPosts:', error);
+      throw error;
+    }
+
+    return (data || []).map((row: any) => {
+      const authorName = row.author?.full_name || 'Anonymous Nurse';
+      return {
+        id: row.id,
+        authorName,
+        authorAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(authorName)}`,
+        authorLevel: row.author?.level || 'BSN Student',
+        authorSchool: row.author?.school || 'Nursing School',
+        title: row.title,
+        content: row.content,
+        category: row.category || 'General',
+        createdAt: row.created_at,
+        likesCount: row.likes_count || 0,
+        commentsCount: row.comments_count || 0,
+        isLiked: userId ? (row.post_likes || []).some((l: any) => l.user_id === userId) : false,
+        isBookmarked: false,
+        comments: [],
+        tags: row.tags || [],
+      };
+    });
   },
 
-  async toggleLikePost(postId: string, userId: string, currentlyLiked: boolean): Promise<void> {
-    console.log(`[Supabase DB] Toggling post like. PostId: ${postId}, UserId: ${userId}, CurrentlyLiked: ${currentlyLiked}`);
+  async createCommunityPost(post: { authorId: string; title: string; content: string; category: string; tags: string[]; groupId?: string }): Promise<CommunityPost> {
+    const { data, error } = await supabase
+      .from('community_posts')
+      .insert({
+        author_id: post.authorId,
+        title: post.title,
+        content: post.content,
+        category: post.category || 'General',
+        tags: post.tags || [],
+        group_id: post.groupId || null,
+      })
+      .select('*, author:profiles!author_id(full_name, level, school)')
+      .single();
+
+    if (error) {
+      console.error('[Supabase DB Error] createCommunityPost:', error);
+      throw error;
+    }
+
+    const authorName = data.author?.full_name || 'Nurse';
+    return {
+      id: data.id,
+      authorName,
+      authorAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(authorName)}`,
+      authorLevel: data.author?.level || 'BSN Student',
+      authorSchool: data.author?.school || 'Nursing School',
+      title: data.title,
+      content: data.content,
+      category: data.category,
+      createdAt: data.created_at,
+      likesCount: 0,
+      commentsCount: 0,
+      isLiked: false,
+      isBookmarked: false,
+      comments: [],
+      tags: data.tags || [],
+    };
   },
 
-  async addComment(postId: string, comment: Partial<Comment>): Promise<string> {
-    console.log(`[Supabase DB] Adding comment to post ${postId}:`, comment);
-    return `c_${Date.now()}`;
+  async toggleLikePost(postId: string): Promise<boolean> {
+    const { data, error } = await supabase.rpc('toggle_post_like', { p_post_id: postId });
+    if (error) {
+      console.error('[Supabase DB Error] toggleLikePost RPC:', error);
+      throw error;
+    }
+    return !!data;
+  },
+
+  async getComments(postId: string): Promise<Comment[]> {
+    const { data, error } = await supabase
+      .from('post_comments')
+      .select('*, author:profiles!author_id(full_name, level)')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[Supabase DB Error] getComments:', error);
+      throw error;
+    }
+
+    return (data || []).map((row: any) => {
+      const authorName = row.author?.full_name || 'Nurse';
+      return {
+        id: row.id,
+        postId: row.post_id,
+        authorName,
+        authorAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(authorName)}`,
+        authorLevel: row.author?.level || 'BSN Student',
+        content: row.content,
+        createdAt: row.created_at,
+        likesCount: 0,
+      };
+    });
+  },
+
+  async addComment(postId: string, authorId: string, content: string): Promise<Comment> {
+    const { data, error } = await supabase
+      .from('post_comments')
+      .insert({
+        post_id: postId,
+        author_id: authorId,
+        content,
+      })
+      .select('*, author:profiles!author_id(full_name, level)')
+      .single();
+
+    if (error) {
+      console.error('[Supabase DB Error] addComment:', error);
+      throw error;
+    }
+
+    const authorName = data.author?.full_name || 'Nurse';
+    return {
+      id: data.id,
+      postId: data.post_id,
+      authorName,
+      authorAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(authorName)}`,
+      authorLevel: data.author?.level || 'BSN Student',
+      content: data.content,
+      createdAt: data.created_at,
+      likesCount: 0,
+    };
+  },
+
+  // ==========================================
+  // 7. STUDY GROUPS & MEMBERSHIP
+  // ==========================================
+  async getGroups(userId?: string): Promise<StudyGroup[]> {
+    const { data, error } = await supabase
+      .from('groups')
+      .select('*, group_members(user_id)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[Supabase DB Error] getGroups:', error);
+      throw error;
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description || '',
+      membersCount: row.members_count || (row.group_members || []).length,
+      category: row.category,
+      isMember: userId ? (row.group_members || []).some((m: any) => m.user_id === userId) : false,
+      avatarUrl: row.avatar_url || '',
+      recentActivity: 'Active today',
+    }));
+  },
+
+  async createGroup(group: { name: string; category: string; description: string; avatarUrl?: string; createdBy: string }): Promise<StudyGroup> {
+    const { data, error } = await supabase
+      .from('groups')
+      .insert({
+        name: group.name,
+        category: group.category,
+        description: group.description,
+        avatar_url: group.avatarUrl || '',
+        created_by: group.createdBy,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[Supabase DB Error] createGroup:', error);
+      throw error;
+    }
+
+    const { error: memErr } = await supabase
+      .from('group_members')
+      .insert({
+        group_id: data.id,
+        user_id: group.createdBy,
+        role: 'admin',
+      });
+
+    if (memErr) {
+      console.error('[Supabase DB Error] createGroup add admin member:', memErr);
+    }
+
+    return {
+      id: data.id,
+      name: data.name,
+      description: data.description || '',
+      membersCount: 1,
+      category: data.category,
+      isMember: true,
+      avatarUrl: data.avatar_url || '',
+      recentActivity: 'Just created',
+    };
+  },
+
+  async joinGroup(groupId: string, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('group_members')
+      .insert({ group_id: groupId, user_id: userId, role: 'member' });
+    if (error) {
+      console.error('[Supabase DB Error] joinGroup:', error);
+      throw error;
+    }
+  },
+
+  async leaveGroup(groupId: string, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('group_members')
+      .delete()
+      .eq('group_id', groupId)
+      .eq('user_id', userId);
+    if (error) {
+      console.error('[Supabase DB Error] leaveGroup:', error);
+      throw error;
+    }
+  },
+
+  // ==========================================
+  // 8. DIRECT MESSAGES & CONVERSATIONS
+  // ==========================================
+  async startConversation(otherUserId: string): Promise<string> {
+    const { data, error } = await supabase.rpc('start_conversation', {
+      other_user_id: otherUserId,
+    });
+    if (error) {
+      console.error('[Supabase DB Error] startConversation:', error);
+      throw error;
+    }
+    return data;
+  },
+
+  async getConversations(userId: string): Promise<Conversation[]> {
+    const { data: userParts, error: partErr } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', userId);
+
+    if (partErr) {
+      console.error('[Supabase DB Error] getConversations participants:', partErr);
+      throw partErr;
+    }
+
+    if (!userParts || userParts.length === 0) {
+      return [];
+    }
+
+    const convIds = userParts.map((p: any) => p.conversation_id);
+
+    const { data: convs, error: convErr } = await supabase
+      .from('conversations')
+      .select('*, conversation_participants(user_id, profile:profiles!user_id(id, full_name, level)), messages(*)')
+      .in('id', convIds)
+      .order('updated_at', { ascending: false });
+
+    if (convErr) {
+      console.error('[Supabase DB Error] getConversations:', convErr);
+      throw convErr;
+    }
+
+    return (convs || []).map((c: any) => {
+      const peerPart = (c.conversation_participants || []).find((p: any) => p.user_id !== userId);
+      const peer = peerPart?.profile;
+      const peerName = peer?.full_name || 'Nurse Peer';
+      const sortedMsgs = (c.messages || []).sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      const lastMsg = sortedMsgs[sortedMsgs.length - 1];
+
+      return {
+        id: c.id,
+        peerName,
+        peerAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(peerName)}`,
+        peerLevel: peer?.level || 'BSN Student',
+        isOnline: true,
+        lastMessage: lastMsg?.text || 'No messages yet',
+        lastMessageTime: lastMsg?.created_at ? new Date(lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+        unreadCount: 0,
+        messages: sortedMsgs.map((m: any) => ({
+          id: m.id,
+          senderId: m.sender_id,
+          senderName: m.sender_id === userId ? 'You' : (peer?.full_name || 'Peer'),
+          text: m.text,
+          timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isMe: m.sender_id === userId,
+        })),
+      };
+    });
+  },
+
+  async getMessages(conversationId: string, currentUserId: string, page = 0, pageSize = 30): Promise<DirectMessage[]> {
+    const offset = page * pageSize;
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*, sender:profiles!sender_id(full_name)')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) {
+      console.error('[Supabase DB Error] getMessages:', error);
+      throw error;
+    }
+
+    return (data || []).map((m: any) => ({
+      id: m.id,
+      senderId: m.sender_id,
+      senderName: m.sender_id === currentUserId ? 'You' : (m.sender?.full_name || 'Peer'),
+      text: m.text,
+      timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isMe: m.sender_id === currentUserId,
+    }));
+  },
+
+  async sendMessage(conversationId: string, senderId: string, text: string): Promise<DirectMessage> {
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({
+        conversation_id: conversationId,
+        sender_id: senderId,
+        text,
+      })
+      .select('*, sender:profiles!sender_id(full_name)')
+      .single();
+
+    if (error) {
+      console.error('[Supabase DB Error] sendMessage:', error);
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      senderId: data.sender_id,
+      senderName: 'You',
+      text: data.text,
+      timestamp: new Date(data.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isMe: true,
+    };
   }
 };
 

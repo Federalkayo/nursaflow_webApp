@@ -10,6 +10,7 @@ import {
   CommunityPost,
   StudyGroup,
   Conversation,
+  DirectMessage,
   GradeScaleConfig,
   GradeLetter,
 } from '../types';
@@ -19,10 +20,9 @@ import { INITIAL_FLASHCARDS } from '../data/mockFlashcards';
 import { INITIAL_QUIZZES } from '../data/mockQuizzes';
 import { INITIAL_NOTES } from '../data/mockNotes';
 import { INITIAL_STUDY_PLANS } from '../data/mockStudyPlans';
-import { INITIAL_COMMUNITY_POSTS } from '../data/mockPosts';
-import { INITIAL_STUDY_GROUPS, INITIAL_CONVERSATIONS } from '../data/mockGroups';
 import { useAuth } from './AuthContext';
 import { dbService } from '../services/supabase/dbService';
+import { supabase } from '../services/supabase/supabaseClient';
 
 interface DataContextType {
   // Academic Tracker
@@ -52,16 +52,29 @@ interface DataContextType {
   updateNote: (id: string, updates: Partial<NursingNote>) => void;
   deleteNote: (id: string) => void;
 
-  // Community
+  // Community State & Actions
   posts: CommunityPost[];
   groups: StudyGroup[];
   conversations: Conversation[];
-  createPost: (title: string, content: string, category: string, tags: string[]) => void;
-  toggleLikePost: (postId: string) => void;
+  activeConversationId: string | null;
+  setActiveConversationId: (id: string | null) => void;
+  selectConversation: (id: string | null) => void;
+  isCommunityLoading: boolean;
+  hasNewPosts: boolean;
+  refreshPosts: () => Promise<void>;
+  communityError: string | null;
+  clearCommunityError: () => void;
+  loadMorePosts: () => Promise<void>;
+  createPost: (title: string, content: string, category: string, tags: string[], groupId?: string) => Promise<void>;
+  toggleLikePost: (postId: string) => Promise<void>;
   toggleBookmarkPost: (postId: string) => void;
-  addCommentToPost: (postId: string, content: string) => void;
-  toggleJoinGroup: (groupId: string) => void;
-  sendMessage: (conversationId: string, text: string) => void;
+  addCommentToPost: (postId: string, content: string) => Promise<void>;
+  fetchCommentsForPost: (postId: string) => Promise<void>;
+  toggleJoinGroup: (groupId: string) => Promise<void>;
+  createGroup: (group: { name: string; category: string; description: string; avatarUrl?: string }) => Promise<void>;
+  startConversation: (otherUserId: string) => Promise<string>;
+  loadMessagesForConversation: (conversationId: string, page?: number) => Promise<boolean>;
+  sendMessage: (conversationId: string, text: string) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -105,30 +118,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return INITIAL_NOTES;
   });
 
-  // Community State
-  const [posts, setPosts] = useState<CommunityPost[]>(() => {
-    const saved = localStorage.getItem('nursaflow_posts');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
-    return INITIAL_COMMUNITY_POSTS;
-  });
-  const [groups, setGroups] = useState<StudyGroup[]>(() => {
-    const saved = localStorage.getItem('nursaflow_groups');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
-    return INITIAL_STUDY_GROUPS;
-  });
-  const [conversations, setConversations] = useState<Conversation[]>(() => {
-    const saved = localStorage.getItem('nursaflow_conversations');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
-    return INITIAL_CONVERSATIONS;
-  });
+  // Community Backend State (No localStorage caching per requirement)
+  const [posts, setPosts] = useState<CommunityPost[]>([]);
+  const [groups, setGroups] = useState<StudyGroup[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [isCommunityLoading, setIsCommunityLoading] = useState<boolean>(true);
+  const [hasNewPosts, setHasNewPosts] = useState<boolean>(false);
+  const [communityError, setCommunityError] = useState<string | null>(null);
+  const [postsPage, setPostsPage] = useState<number>(0);
 
-  // Persistence Effects
+  const clearCommunityError = () => setCommunityError(null);
+
+  // Academic & Study Persistence Effects (Non-community)
   useEffect(() => {
     const key = student?.id ? `nursaflow_semesters_${student.id}` : 'nursaflow_semesters_guest';
     localStorage.setItem(key, JSON.stringify(semesters));
@@ -136,17 +138,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => { localStorage.setItem('nursaflow_flashcards', JSON.stringify(flashcards)); }, [flashcards]);
   useEffect(() => { localStorage.setItem('nursaflow_plans', JSON.stringify(studyPlans)); }, [studyPlans]);
   useEffect(() => { localStorage.setItem('nursaflow_notes', JSON.stringify(notes)); }, [notes]);
-  useEffect(() => { localStorage.setItem('nursaflow_posts', JSON.stringify(posts)); }, [posts]);
-  useEffect(() => { localStorage.setItem('nursaflow_groups', JSON.stringify(groups)); }, [groups]);
-  useEffect(() => { localStorage.setItem('nursaflow_conversations', JSON.stringify(conversations)); }, [conversations]);
 
+  // Initial Fetch: Semesters, Subjects, Flashcards, Notes, Study Plans
   useEffect(() => {
     let isMounted = true;
     if (student?.id) {
       dbService.getSemesters(student.id).then((fetched) => {
         if (isMounted && fetched) setSemesters(fetched);
       }).catch((e) => {
-        console.warn('[DataContext] getSemesters failed, using cached/mock:', e);
+        console.warn('[DataContext] getSemesters failed:', e);
       });
     } else {
       setSemesters(INITIAL_SEMESTERS);
@@ -159,7 +159,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dbService.getSubjects().then((fetched) => {
       if (isMounted && fetched && fetched.length > 0) setSubjects(fetched);
     }).catch((e) => {
-      console.warn('[DataContext] getSubjects failed, using cached/mock:', e);
+      console.warn('[DataContext] getSubjects failed:', e);
     });
     return () => { isMounted = false; };
   }, []);
@@ -169,7 +169,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dbService.getFlashcards(student?.id).then((fetched) => {
       if (isMounted && fetched && fetched.length > 0) setFlashcards(fetched);
     }).catch((e) => {
-      console.warn('[DataContext] getFlashcards failed, using cached/mock:', e);
+      console.warn('[DataContext] getFlashcards failed:', e);
     });
     return () => { isMounted = false; };
   }, [student?.id]);
@@ -180,7 +180,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       dbService.getNotes(student.id).then((fetched) => {
         if (isMounted && fetched) setNotes(fetched);
       }).catch((e) => {
-        console.warn('[DataContext] getNotes failed, using cached/mock:', e);
+        console.warn('[DataContext] getNotes failed:', e);
       });
     } else {
       setNotes(INITIAL_NOTES);
@@ -194,7 +194,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       dbService.getStudyPlans(student.id).then((fetched) => {
         if (isMounted && fetched) setStudyPlans(fetched);
       }).catch((e) => {
-        console.warn('[DataContext] getStudyPlans failed, using cached/mock:', e);
+        console.warn('[DataContext] getStudyPlans failed:', e);
       });
     } else {
       setStudyPlans(INITIAL_STUDY_PLANS);
@@ -202,7 +202,187 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { isMounted = false; };
   }, [student?.id]);
 
-  // GPA Calculation Helper function
+  // ==========================================
+  // COMMUNITY DATA FETCHING & REALTIME
+  // ==========================================
+
+  // Initial Fetch: Community Posts, Groups, Conversations with Loading State
+  useEffect(() => {
+    let isMounted = true;
+    setIsCommunityLoading(true);
+
+    Promise.all([
+      dbService.getPosts(0, 10, undefined, student?.id),
+      dbService.getGroups(student?.id),
+      student?.id ? dbService.getConversations(student.id) : Promise.resolve([]),
+    ])
+      .then(([fetchedPosts, fetchedGroups, fetchedConvs]) => {
+        if (isMounted) {
+          setPosts(fetchedPosts);
+          setGroups(fetchedGroups);
+          setConversations(fetchedConvs);
+          setPostsPage(0);
+          setHasNewPosts(false);
+          setIsCommunityLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error('[DataContext] Initial community fetch error:', err);
+        if (isMounted) {
+          setCommunityError('Failed to load community data.');
+          setIsCommunityLoading(false);
+        }
+      });
+
+    return () => { isMounted = false; };
+  }, [student?.id]);
+
+  // Explicit Refresh Posts (Resets Pagination & Clears hasNewPosts Banner)
+  const refreshPosts = async () => {
+    try {
+      const freshPosts = await dbService.getPosts(0, 10, undefined, student?.id);
+      setPosts(freshPosts);
+      setPostsPage(0);
+      setHasNewPosts(false);
+    } catch (err: any) {
+      console.error('[DataContext] Error refreshing posts:', err);
+      setCommunityError('Failed to refresh posts.');
+    }
+  };
+
+  // Load More Paginated Posts
+  const loadMorePosts = async () => {
+    const nextPage = postsPage + 1;
+    try {
+      const morePosts = await dbService.getPosts(nextPage, 10, undefined, student?.id);
+      if (morePosts.length > 0) {
+        setPosts((prev) => {
+          const existingIds = new Set(prev.map((p) => p.id));
+          const newUnique = morePosts.filter((p) => !existingIds.has(p.id));
+          return [...prev, ...newUnique];
+        });
+        setPostsPage(nextPage);
+      }
+    } catch (err: any) {
+      console.error('[DataContext] Error loading more posts:', err);
+      setCommunityError('Failed to load more posts.');
+    }
+  };
+
+  // Explicit Conversation Selection: Sets Active Conv & Fetches History
+  const selectConversation = (id: string | null) => {
+    setActiveConversationId(id);
+    if (id) {
+      loadMessagesForConversation(id, 0);
+    }
+  };
+
+  // Realtime Messages Subscription (Server-side filtered per active conversation)
+  useEffect(() => {
+    if (!activeConversationId) return;
+
+    const channelName = `messages_conv_${activeConversationId}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${activeConversationId}`,
+        },
+        (payload) => {
+          const newMsgRow = payload.new as any;
+          if (!newMsgRow) return;
+
+          // SKIP sender's own message (handled optimistically & reconciled by sendMessage)
+          if (newMsgRow.sender_id === student?.id) {
+            return;
+          }
+
+          const formattedMsg: DirectMessage = {
+            id: newMsgRow.id,
+            senderId: newMsgRow.sender_id,
+            senderName: 'Peer',
+            text: newMsgRow.text,
+            timestamp: new Date(newMsgRow.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isMe: false,
+          };
+
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id === activeConversationId) {
+                const alreadyExists = (c.messages || []).some((m) => m.id === formattedMsg.id);
+                if (alreadyExists) return c;
+
+                return {
+                  ...c,
+                  lastMessage: formattedMsg.text,
+                  lastMessageTime: formattedMsg.timestamp,
+                  messages: [...(c.messages || []), formattedMsg],
+                };
+              }
+              return c;
+            })
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeConversationId, student?.id]);
+
+  // Realtime Posts & Comments Listener (INSERT & UPDATE)
+  // - On INSERT by stranger: sets hasNewPosts = true without wiping user's current pagination
+  // - On UPDATE by triggers (likes/comments count changes): updates counts live on screen
+  useEffect(() => {
+    const postsChannel = supabase
+      .channel('realtime_community_posts_and_comments')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'community_posts' },
+        (payload) => {
+          const newPost = payload.new as any;
+          if (newPost && newPost.author_id !== student?.id) {
+            setHasNewPosts(true);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'community_posts' },
+        (payload) => {
+          const updatedPost = payload.new as any;
+          if (!updatedPost) return;
+
+          setPosts((prev) =>
+            prev.map((p) => {
+              if (p.id === updatedPost.id) {
+                return {
+                  ...p,
+                  likesCount: updatedPost.likes_count ?? p.likesCount,
+                  commentsCount: updatedPost.comments_count ?? p.commentsCount,
+                };
+              }
+              return p;
+            })
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(postsChannel);
+    };
+  }, [student?.id]);
+
+  // ==========================================
+  // ACADEMIC & GPA CALCULATIONS
+  // ==========================================
+
   const calculateGpaForCourses = (courses: Array<{ creditUnits: number; grade: GradeLetter }>): number => {
     if (!courses || courses.length === 0) return 0.0;
     let totalQualityPoints = 0;
@@ -217,7 +397,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return totalCredits > 0 ? Number((totalQualityPoints / totalCredits).toFixed(2)) : 0.0;
   };
 
-  // Recalculate semester GPAs, overall GPA & CGPA dynamically
   let totalQualityPointsAllSemesters = 0;
   let totalCreditsAllSemesters = 0;
   let currentSemesterGpa = 0.0;
@@ -247,7 +426,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ? Number((totalQualityPointsAllSemesters / totalCreditsAllSemesters).toFixed(2))
     : 0.0;
 
-  // Sync GPA/CGPA with student profile
   useEffect(() => {
     if (student) {
       if (student.gpa !== currentSemesterGpa || student.cgpa !== calculatedCgpa) {
@@ -260,7 +438,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [semesters]);
 
-  // Academic Actions
+  // ==========================================
+  // ACADEMIC & STUDY ACTIONS
+  // ==========================================
+
   const addSemester = (name: string, academicYear: string) => {
     const tempId = `sem_${Date.now()}`;
     const newSem: Semester = {
@@ -355,7 +536,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dbService.deleteSemester(semesterId).catch(() => {});
   };
 
-  // Study Actions
   const toggleFlashcardKnown = (id: string) => {
     let updatedVal = false;
     setFlashcards((prev) =>
@@ -472,42 +652,114 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dbService.deleteNote(id).catch(() => {});
   };
 
-  // Community Actions
-  const createPost = (title: string, content: string, category: string, tags: string[]) => {
-    const newPost: CommunityPost = {
-      id: `post_${Date.now()}`,
-      authorName: student?.name || 'Nightingale Maya',
-      authorAvatar: student?.avatarUrl || 'https://images.unsplash.com/photo-1594824813571-28a62617b9d2?w=150&auto=format&fit=crop&q=80',
-      authorLevel: student?.level || '300 Level BSN',
-      authorSchool: student?.school || 'Johns Hopkins Nursing',
+  // ==========================================
+  // COMMUNITY ACTIONS WITH OPTIMISTIC UPDATES & ROLLBACKS
+  // ==========================================
+
+  // Create Post Optimistically
+  const createPost = async (title: string, content: string, category: string, tags: string[], groupId?: string) => {
+    if (!student?.id) {
+      setCommunityError('You must be logged in to create a post.');
+      return;
+    }
+
+    const tempId = `temp_post_${Date.now()}`;
+    const optimisticPost: CommunityPost = {
+      id: tempId,
+      authorName: student.name || 'Nurse',
+      authorAvatar: student.avatarUrl || '',
+      authorLevel: student.level || 'BSN Student',
+      authorSchool: student.school || 'Nursing School',
       title,
       content,
-      category,
-      createdAt: 'Just now',
+      category: category || 'General',
+      createdAt: new Date().toISOString(),
       likesCount: 0,
       commentsCount: 0,
       isLiked: false,
       isBookmarked: false,
-      tags,
       comments: [],
+      tags: tags || [],
     };
-    setPosts((prev) => [newPost, ...prev]);
+
+    // Optimistic Update
+    setPosts((prev) => [optimisticPost, ...prev]);
+
+    try {
+      const realPost = await dbService.createCommunityPost({
+        authorId: student.id,
+        title,
+        content,
+        category,
+        tags,
+        groupId,
+      });
+
+      // Reconcile with real DB row
+      setPosts((prev) => prev.map((p) => (p.id === tempId ? realPost : p)));
+    } catch (err: any) {
+      console.error('[DataContext] createPost failed:', err);
+      // Rollback optimistic creation
+      setPosts((prev) => prev.filter((p) => p.id !== tempId));
+      setCommunityError(err?.message || 'Failed to create post. Please try again.');
+    }
   };
 
-  const toggleLikePost = (postId: string) => {
-    setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === postId) {
-          const isLiked = !p.isLiked;
-          return {
-            ...p,
-            isLiked,
-            likesCount: isLiked ? p.likesCount + 1 : p.likesCount - 1,
-          };
-        }
-        return p;
-      })
-    );
+  // Toggle Like Post Optimistically via Atomic RPC
+  const toggleLikePost = async (postId: string) => {
+    if (!student?.id) {
+      setCommunityError('You must be logged in to like posts.');
+      return;
+    }
+
+    let priorLikedState = false;
+    let priorLikesCount = 0;
+
+    // Capture exact prior state from functional updater to prevent race condition bugs
+    setPosts((prev) => {
+      const target = prev.find((p) => p.id === postId);
+      if (!target) return prev;
+      priorLikedState = !!target.isLiked;
+      priorLikesCount = target.likesCount;
+
+      const nextLikedState = !priorLikedState;
+      const nextLikesCount = nextLikedState ? priorLikesCount + 1 : Math.max(0, priorLikesCount - 1);
+
+      return prev.map((p) => (p.id === postId ? { ...p, isLiked: nextLikedState, likesCount: nextLikesCount } : p));
+    });
+
+    try {
+      const isNowLiked = await dbService.toggleLikePost(postId);
+      // Reconcile with exact atomic server response
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p.id === postId) {
+            return {
+              ...p,
+              isLiked: isNowLiked,
+              likesCount: isNowLiked ? Math.max(p.likesCount, priorLikesCount + 1) : Math.max(0, priorLikesCount - 1),
+            };
+          }
+          return p;
+        })
+      );
+    } catch (err: any) {
+      console.error('[DataContext] toggleLikePost failed:', err);
+      // Rollback to prior exact captured state
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p.id === postId) {
+            return {
+              ...p,
+              isLiked: priorLikedState,
+              likesCount: priorLikesCount,
+            };
+          }
+          return p;
+        })
+      );
+      setCommunityError(err?.message || 'Failed to update like status.');
+    }
   };
 
   const toggleBookmarkPost = (postId: string) => {
@@ -516,70 +768,259 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const addCommentToPost = (postId: string, content: string) => {
+  // Fetch Comments for Post
+  const fetchCommentsForPost = async (postId: string) => {
+    try {
+      const comments = await dbService.getComments(postId);
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, comments } : p))
+      );
+    } catch (err: any) {
+      console.error('[DataContext] fetchCommentsForPost failed:', err);
+    }
+  };
+
+  // Add Comment Optimistically
+  const addCommentToPost = async (postId: string, content: string) => {
+    if (!student?.id) {
+      setCommunityError('You must be logged in to add a comment.');
+      return;
+    }
+
+    const tempCommentId = `temp_c_${Date.now()}`;
+    const optimisticComment = {
+      id: tempCommentId,
+      postId,
+      authorName: student.name || 'Nurse',
+      authorAvatar: student.avatarUrl || '',
+      authorLevel: student.level || 'BSN Student',
+      content,
+      createdAt: new Date().toISOString(),
+      likesCount: 0,
+    };
+
+    // Optimistic Update
     setPosts((prev) =>
       prev.map((p) => {
         if (p.id === postId) {
-          const newComment = {
-            id: `c_${Date.now()}`,
-            postId,
-            authorName: student?.name || 'Nightingale Maya',
-            authorAvatar: student?.avatarUrl || 'https://images.unsplash.com/photo-1594824813571-28a62617b9d2?w=150&auto=format&fit=crop&q=80',
-            authorLevel: student?.level || '300 Level BSN',
-            content,
-            createdAt: 'Just now',
-            likesCount: 0,
-            isLiked: false,
-          };
           return {
             ...p,
             commentsCount: p.commentsCount + 1,
-            comments: [...p.comments, newComment],
+            comments: [...(p.comments || []), optimisticComment],
           };
         }
         return p;
       })
     );
+
+    try {
+      const realComment = await dbService.addComment(postId, student.id, content);
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p.id === postId) {
+            return {
+              ...p,
+              comments: (p.comments || []).map((c) => (c.id === tempCommentId ? realComment : c)),
+            };
+          }
+          return p;
+        })
+      );
+    } catch (err: any) {
+      console.error('[DataContext] addCommentToPost failed:', err);
+      // Rollback optimistic comment addition
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p.id === postId) {
+            return {
+              ...p,
+              commentsCount: Math.max(0, p.commentsCount - 1),
+              comments: (p.comments || []).filter((c) => c.id !== tempCommentId),
+            };
+          }
+          return p;
+        })
+      );
+      setCommunityError(err?.message || 'Failed to post comment.');
+    }
   };
 
-  const toggleJoinGroup = (groupId: string) => {
-    setGroups((prev) =>
-      prev.map((g) => {
-        if (g.id === groupId) {
-          const isMember = !g.isMember;
-          return {
-            ...g,
-            isMember,
-            membersCount: isMember ? g.membersCount + 1 : g.membersCount - 1,
-          };
-        }
-        return g;
-      })
-    );
+  // Join/Leave Group Optimistically
+  const toggleJoinGroup = async (groupId: string) => {
+    if (!student?.id) {
+      setCommunityError('You must be logged in to join groups.');
+      return;
+    }
+
+    let priorMemberState = false;
+    let priorMembersCount = 0;
+
+    setGroups((prev) => {
+      const target = prev.find((g) => g.id === groupId);
+      if (!target) return prev;
+      priorMemberState = !!target.isMember;
+      priorMembersCount = target.membersCount;
+
+      const nextMemberState = !priorMemberState;
+      const nextMembersCount = nextMemberState ? priorMembersCount + 1 : Math.max(0, priorMembersCount - 1);
+
+      return prev.map((g) => (g.id === groupId ? { ...g, isMember: nextMemberState, membersCount: nextMembersCount } : g));
+    });
+
+    try {
+      if (priorMemberState) {
+        await dbService.leaveGroup(groupId, student.id);
+      } else {
+        await dbService.joinGroup(groupId, student.id);
+      }
+    } catch (err: any) {
+      console.error('[DataContext] toggleJoinGroup failed:', err);
+      // Rollback
+      setGroups((prev) =>
+        prev.map((g) => {
+          if (g.id === groupId) {
+            return {
+              ...g,
+              isMember: priorMemberState,
+              membersCount: priorMembersCount,
+            };
+          }
+          return g;
+        })
+      );
+      setCommunityError(err?.message || 'Failed to update group membership.');
+    }
   };
 
-  const sendMessage = (conversationId: string, text: string) => {
+  // Create Group
+  const createGroup = async (groupData: { name: string; category: string; description: string; avatarUrl?: string }) => {
+    if (!student?.id) {
+      setCommunityError('You must be logged in to create a group.');
+      return;
+    }
+
+    try {
+      const newGroup = await dbService.createGroup({
+        ...groupData,
+        createdBy: student.id,
+      });
+      setGroups((prev) => [newGroup, ...prev]);
+    } catch (err: any) {
+      console.error('[DataContext] createGroup failed:', err);
+      setCommunityError(err?.message || 'Failed to create group.');
+      throw err;
+    }
+  };
+
+  // Start 1-to-1 Conversation via start_conversation RPC & fetch history
+  const startConversation = async (otherUserId: string): Promise<string> => {
+    if (!student?.id) {
+      setCommunityError('You must be logged in to message users.');
+      throw new Error('Unauthenticated user');
+    }
+
+    try {
+      const convId = await dbService.startConversation(otherUserId);
+      const updatedConvs = await dbService.getConversations(student.id);
+      setConversations(updatedConvs);
+      selectConversation(convId);
+      return convId;
+    } catch (err: any) {
+      console.error('[DataContext] startConversation failed:', err);
+      setCommunityError(err?.message || 'Failed to start conversation.');
+      throw err;
+    }
+  };
+
+  // Fetch Message History for a Conversation (Paginated)
+  const loadMessagesForConversation = async (conversationId: string, page = 0): Promise<boolean> => {
+    if (!student?.id) return false;
+    const pageSize = 30;
+    try {
+      const fetchedMsgs = await dbService.getMessages(conversationId, student.id, page, pageSize);
+      const hasMore = fetchedMsgs.length === pageSize;
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === conversationId) {
+            if (page === 0) {
+              return { ...c, messages: fetchedMsgs, hasMoreMessages: hasMore };
+            } else {
+              const existingIds = new Set((c.messages || []).map((m) => m.id));
+              const newOlder = fetchedMsgs.filter((m) => !existingIds.has(m.id));
+              return { ...c, messages: [...newOlder, ...(c.messages || [])], hasMoreMessages: hasMore };
+            }
+          }
+          return c;
+        })
+      );
+      return hasMore;
+    } catch (err: any) {
+      console.error('[DataContext] loadMessagesForConversation error:', err);
+      return false;
+    }
+  };
+
+  // Send Direct Message Optimistically
+  const sendMessage = async (conversationId: string, text: string) => {
+    if (!student?.id) {
+      setCommunityError('You must be logged in to send messages.');
+      return;
+    }
+
+    const tempMsgId = `temp_m_${Date.now()}`;
+    const optimisticMsg: DirectMessage = {
+      id: tempMsgId,
+      senderId: student.id,
+      senderName: student.name || 'You',
+      text,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isMe: true,
+    };
+
+    // Optimistic Update
     setConversations((prev) =>
-      prev.map((conv) => {
-        if (conv.id === conversationId) {
-          const newMsg = {
-            id: `m_${Date.now()}`,
-            senderId: student?.id || 'user_1',
-            senderName: student?.name || 'Nightingale Maya',
-            text,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            isMe: true,
-          };
+      prev.map((c) => {
+        if (c.id === conversationId) {
           return {
-            ...conv,
+            ...c,
             lastMessage: text,
-            lastMessageTime: newMsg.timestamp,
-            messages: [...conv.messages, newMsg],
+            lastMessageTime: optimisticMsg.timestamp,
+            messages: [...(c.messages || []), optimisticMsg],
           };
         }
-        return conv;
+        return c;
       })
     );
+
+    try {
+      const realMsg = await dbService.sendMessage(conversationId, student.id, text);
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === conversationId) {
+            return {
+              ...c,
+              messages: (c.messages || []).map((m) => (m.id === tempMsgId ? realMsg : m)),
+            };
+          }
+          return c;
+        })
+      );
+    } catch (err: any) {
+      console.error('[DataContext] sendMessage failed:', err);
+      // Rollback
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === conversationId) {
+            return {
+              ...c,
+              messages: (c.messages || []).filter((m) => m.id !== tempMsgId),
+            };
+          }
+          return c;
+        })
+      );
+      setCommunityError(err?.message || 'Failed to send message.');
+    }
   };
 
   return (
@@ -611,11 +1052,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         posts,
         groups,
         conversations,
+        activeConversationId,
+        setActiveConversationId,
+        selectConversation,
+        isCommunityLoading,
+        hasNewPosts,
+        refreshPosts,
+        communityError,
+        clearCommunityError,
+        loadMorePosts,
         createPost,
         toggleLikePost,
         toggleBookmarkPost,
         addCommentToPost,
+        fetchCommentsForPost,
         toggleJoinGroup,
+        createGroup,
+        startConversation,
+        loadMessagesForConversation,
         sendMessage,
       }}
     >

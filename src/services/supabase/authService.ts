@@ -1,6 +1,5 @@
 import { supabase } from './supabaseClient';
 import { StudentProfile } from '../../types';
-import { INITIAL_STUDENT_PROFILE } from '../../data/mockStudents';
 import { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { dbService } from './dbService';
 
@@ -115,7 +114,25 @@ export const authService = {
     } catch (e) {}
 
     try {
-      const dbProfile = await dbService.getProfile(user.id);
+      let dbProfile = await dbService.getProfile(user.id);
+      
+      if (!dbProfile) {
+        try {
+          console.log('[Supabase Auth Auto-heal] Profiles row missing for user. Auto-healing profile row for:', user.id);
+          await dbService.upsertProfile({
+            id: user.id,
+            full_name: fallbackName,
+            school: fallbackSchool,
+            level: fallbackLevel,
+            target_gpa: 4.50,
+            current_streak: 1,
+          });
+          dbProfile = await dbService.getProfile(user.id);
+        } catch (healErr) {
+          console.warn('[Supabase Auth Auto-heal Warning] Failed to auto-create missing profile:', healErr);
+        }
+      }
+
       const name = dbProfile?.full_name || fallbackName;
 
       return {
@@ -182,12 +199,20 @@ export const authService = {
     const data = await this.signUp(email, defaultPass, { full_name: name, school, level });
     
     let profile: StudentProfile = {
-      ...INITIAL_STUDENT_PROFILE,
-      id: data.user?.id || `std_${Date.now()}`,
+      id: data.user?.id || '',
       name,
       email,
       school,
       level,
+      avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+      gpa: 0.0,
+      cgpa: 0.0,
+      targetCgpa: 4.50,
+      studyStreakDays: 1,
+      studyHoursTotal: 0,
+      completedCredits: 0,
+      totalRequiredCredits: 120,
+      achievements: [],
     };
 
     if (data.user) {

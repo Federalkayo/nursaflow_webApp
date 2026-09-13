@@ -33,6 +33,7 @@ import { Badge } from '../../components/common/Badge';
 export const DashboardPage: React.FC = () => {
   const {
     student,
+    isInitializing,
     addStudyTime,
     isTimerRunning,
     timerSeconds,
@@ -42,6 +43,23 @@ export const DashboardPage: React.FC = () => {
     formatTimer,
   } = useAuth();
   const { currentGpa, cgpa, semesters, subjects } = useData();
+
+  if (isInitializing) {
+    return (
+      <div className="space-y-6 max-w-7xl mx-auto p-6 animate-pulse">
+        <div className="w-full h-44 rounded-3xl bg-slate-800/50" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-28 rounded-2xl bg-slate-800/40" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!student) {
+    return null;
+  }
 
   const handleQuickAdd = (minutes: number) => {
     addStudyTime(minutes, false);
@@ -76,7 +94,7 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight">
-              Good day, <span className="bg-gradient-to-r from-brand-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">{student.name || 'Nightingale Maya'}</span> 👋
+              Good day, <span className="bg-gradient-to-r from-brand-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">{student.name || 'Student'}</span> 👋
             </h1>
 
             <p className="text-sm text-slate-300 max-w-xl leading-relaxed">

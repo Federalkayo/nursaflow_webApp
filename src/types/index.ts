@@ -199,6 +199,7 @@ export interface Conversation {
   lastMessageTime: string;
   unreadCount: number;
   messages: DirectMessage[];
+  hasMoreMessages?: boolean;
 }
 
 // ==========================================

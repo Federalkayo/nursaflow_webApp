@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { StudentProfile } from '../types';
-import { INITIAL_STUDENT_PROFILE } from '../data/mockStudents';
 import { authService } from '../services/supabase/authService';
 import { dbService } from '../services/supabase/dbService';
 import { Session } from '@supabase/supabase-js';
 
+const IS_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 interface AuthContextType {
-  student: StudentProfile;
+  student: StudentProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   isInitializing: boolean;
@@ -29,21 +30,29 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [student, setStudent] = useState<StudentProfile>(() => {
+  // Initialize student from localStorage only if it contains a valid Supabase UUID
+  const [student, setStudent] = useState<StudentProfile | null>(() => {
     try {
       const saved = localStorage.getItem('nursaflow_student');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') return parsed;
+        if (parsed && typeof parsed === 'object' && parsed.id) {
+          if (IS_UUID_REGEX.test(parsed.id)) {
+            return parsed;
+          } else {
+            console.warn(`[AuthContext Warning] Rejected cached student profile with invalid non-UUID id: "${parsed.id}"`);
+            localStorage.removeItem('nursaflow_student');
+          }
+        }
       }
     } catch (e) {}
-    return INITIAL_STUDENT_PROFILE;
+    return null;
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
 
-  // Global Live Study Session Timer State (persists across page navigation)
+  // Global Live Study Session Timer State
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
   const [timerSeconds, setTimerSeconds] = useState<number>(0);
 
@@ -52,7 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return typeof document !== 'undefined' ? !document.hidden && document.hasFocus() : true;
   });
 
-  // Track window focus and tab visibility (stops timer when user leaves Chrome or app window)
+  // Track window focus and tab visibility
   useEffect(() => {
     const handleVisibilityChange = () => {
       setIsTabActive(!document.hidden && document.hasFocus());
@@ -72,10 +81,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Synchronize student state to localStorage whenever it changes
+  // Synchronize valid student profile to localStorage
   useEffect(() => {
-    if (student) {
+    if (student && IS_UUID_REGEX.test(student.id)) {
       localStorage.setItem('nursaflow_student', JSON.stringify(student));
+    } else {
+      localStorage.removeItem('nursaflow_student');
     }
   }, [student]);
 
@@ -84,9 +95,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const today = new Date().toISOString().split('T')[0];
     
     setStudent((prev) => {
-      if (!prev) return INITIAL_STUDENT_PROFILE;
+      if (!prev || !IS_UUID_REGEX.test(prev.id)) return prev;
       if (prev.lastStudyDate === today) {
-        return prev; // Already recorded today
+        return prev;
       }
 
       let newStreak = prev.studyStreakDays || 1;
@@ -96,10 +107,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const yesterday = yesterdayDate.toISOString().split('T')[0];
 
         if (prev.lastStudyDate === yesterday) {
-          // Consecutive daily study activity!
           newStreak = (prev.studyStreakDays || 0) + 1;
         } else {
-          // Break in streak, reset to 1
           newStreak = 1;
         }
       } else {
@@ -112,7 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lastStudyDate: today,
       };
 
-      if (prev.id && !prev.id.startsWith('std_guest')) {
+      if (prev.id && IS_UUID_REGEX.test(prev.id)) {
         dbService.updateProfile(prev.id, {
           current_streak: newStreak,
           last_active_date: today,
@@ -121,42 +130,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      localStorage.setItem('nursaflow_student', JSON.stringify(updated));
       return updated;
     });
   }, []);
 
-  // Add accumulated study time (in minutes or hours)
+  // Add accumulated study time
   const addStudyTime = useCallback((amount: number, isHours = false) => {
     const hoursToAdd = isHours ? amount : amount / 60;
     if (hoursToAdd <= 0) return;
 
     setStudent((prev) => {
-      const base = prev || INITIAL_STUDENT_PROFILE;
-      const currentHours = base.studyHoursTotal || 0;
+      if (!prev || !IS_UUID_REGEX.test(prev.id)) return prev;
+      const currentHours = prev.studyHoursTotal || 0;
       const updatedHours = Number((currentHours + hoursToAdd).toFixed(2));
 
       const updated: StudentProfile = {
-        ...base,
+        ...prev,
         studyHoursTotal: updatedHours,
       };
 
-      if (base.id && !base.id.startsWith('std_guest')) {
-        dbService.updateProfile(base.id, {
+      if (prev.id && IS_UUID_REGEX.test(prev.id)) {
+        dbService.updateProfile(prev.id, {
           total_study_hours: updatedHours,
         }).catch((err) => {
           console.warn('[AuthContext] Failed to persist study hours to Supabase:', err);
         });
       }
 
-      localStorage.setItem('nursaflow_student', JSON.stringify(updated));
       return updated;
     });
 
     recordStudyActivity();
   }, [recordStudyActivity]);
 
-  // Global Timer Ticking Effect: ONLY ticks if timer is running AND tab is active/focused!
+  // Global Timer Ticking Effect
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
@@ -164,7 +171,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       interval = setInterval(() => {
         setTimerSeconds((prev) => {
           const next = prev + 1;
-          // Every 60 seconds (1 minute), log 1 minute of study time to studyHoursTotal
           if (next % 60 === 0) {
             addStudyTime(1, false);
           }
@@ -176,18 +182,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => clearInterval(interval);
   }, [isTimerRunning, isTabActive, addStudyTime]);
 
-  // Global Active Session Auto Timer: increment study hours by 1 min every 60s ONLY if user is active on tab
+  // Global Active Session Auto Timer
   useEffect(() => {
-    if (!isTabActive) return; // STOPS counting when user is not on the app or Chrome page!
+    if (!isTabActive) return;
 
     const interval = setInterval(() => {
-      if (!isTimerRunning) {
+      if (!isTimerRunning && student && IS_UUID_REGEX.test(student.id)) {
         addStudyTime(1, false);
       }
     }, 60000);
 
     return () => clearInterval(interval);
-  }, [isTabActive, isTimerRunning, addStudyTime]);
+  }, [isTabActive, isTimerRunning, addStudyTime, student]);
 
   const toggleTimer = useCallback(() => {
     setIsTimerRunning((prev) => {
@@ -220,16 +226,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (session?.user && isMounted) {
           const profile = await authService.buildStudentProfile(session.user);
           setStudent(profile);
+        } else if (isMounted) {
+          setStudent(null);
+          localStorage.removeItem('nursaflow_student');
         }
       } catch (e) {
         console.warn('[AuthContext Warning] Failed to check Supabase session:', e);
+        if (isMounted) {
+          setStudent(null);
+          localStorage.removeItem('nursaflow_student');
+        }
       } finally {
         if (isMounted) setIsInitializing(false);
       }
     };
 
     initSession();
-    recordStudyActivity();
 
     // Subscribe to auth state changes from Supabase
     const { subscription } = authService.onAuthStateChange(async (event, session) => {
@@ -241,7 +253,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setStudent(profile);
         }
       } else if (event === 'SIGNED_OUT') {
-        setStudent(INITIAL_STUDENT_PROFILE);
+        setStudent(null);
+        localStorage.removeItem('nursaflow_student');
       }
     });
 
@@ -249,7 +262,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [recordStudyActivity]);
+  }, []);
 
   const login = async (email: string, pass: string): Promise<StudentProfile> => {
     setIsLoading(true);
@@ -287,7 +300,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       await authService.logout();
-      setStudent(INITIAL_STUDENT_PROFILE);
+      setStudent(null);
+      localStorage.removeItem('nursaflow_student');
       setIsTimerRunning(false);
       setTimerSeconds(0);
     } finally {
@@ -297,36 +311,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateProfile = (updates: Partial<StudentProfile>) => {
     setStudent((prev) => {
-      const base = prev || INITIAL_STUDENT_PROFILE;
-      const updated: StudentProfile = { ...base, ...updates };
+      if (!prev || !IS_UUID_REGEX.test(prev.id)) return prev;
+      const updated: StudentProfile = { ...prev, ...updates };
 
-      if (base.id && !base.id.startsWith('std_guest')) {
-        const payload: Record<string, any> = {};
-        if (updates.name !== undefined) payload.full_name = updates.name;
-        if (updates.school !== undefined) payload.school = updates.school;
-        if (updates.level !== undefined) payload.level = updates.level;
-        if (updates.targetCgpa !== undefined) payload.target_gpa = updates.targetCgpa;
-        if (updates.studyStreakDays !== undefined) payload.current_streak = updates.studyStreakDays;
-        if (updates.studyHoursTotal !== undefined) payload.total_study_hours = updates.studyHoursTotal;
-        if (updates.lastStudyDate !== undefined) payload.last_active_date = updates.lastStudyDate;
+      const payload: Record<string, any> = {};
+      if (updates.name !== undefined) payload.full_name = updates.name;
+      if (updates.school !== undefined) payload.school = updates.school;
+      if (updates.level !== undefined) payload.level = updates.level;
+      if (updates.targetCgpa !== undefined) payload.target_gpa = updates.targetCgpa;
+      if (updates.studyStreakDays !== undefined) payload.current_streak = updates.studyStreakDays;
+      if (updates.studyHoursTotal !== undefined) payload.total_study_hours = updates.studyHoursTotal;
+      if (updates.lastStudyDate !== undefined) payload.last_active_date = updates.lastStudyDate;
 
-        if (Object.keys(payload).length > 0) {
-          dbService.updateProfile(base.id, payload).catch((err: unknown) => {
-            console.warn('[AuthContext] Failed to persist profile update to Supabase:', err);
-          });
-        }
+      if (Object.keys(payload).length > 0) {
+        dbService.updateProfile(prev.id, payload).catch((err: unknown) => {
+          console.warn('[AuthContext] Failed to persist profile update to Supabase:', err);
+        });
       }
 
-      localStorage.setItem('nursaflow_student', JSON.stringify(updated));
       return updated;
     });
   };
+
+  const isAuthenticated = !!student && IS_UUID_REGEX.test(student.id);
 
   return (
     <AuthContext.Provider
       value={{
         student,
-        isAuthenticated: !!student && !student.id.startsWith('std_guest'),
+        isAuthenticated,
         isLoading,
         isInitializing,
         login,
