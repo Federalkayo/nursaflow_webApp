@@ -9,8 +9,11 @@ import { Input } from '../../components/common/Input';
 import { Select } from '../../components/common/Select';
 import { NursingNote } from '../../types';
 
+import { useAuth } from '../../context/AuthContext';
+
 export const NotesPage: React.FC = () => {
   const { notes, addNote, updateNote, deleteNote, subjects } = useData();
+  const { addStudyTime, recordStudyActivity } = useAuth();
 
   const [search, setSearch] = useState('');
   const [selectedSubjectId, setSelectedSubjectId] = useState('all');
@@ -70,6 +73,8 @@ export const NotesPage: React.FC = () => {
       });
     }
 
+    addStudyTime(10, false); // 10 minutes study time credit
+    recordStudyActivity();
     setShowModal(false);
   };
 

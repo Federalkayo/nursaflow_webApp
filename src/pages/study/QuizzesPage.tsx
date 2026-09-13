@@ -21,7 +21,7 @@ import { Badge } from '../../components/common/Badge';
 import { ProgressBar } from '../../components/common/ProgressBar';
 
 export const QuizzesPage: React.FC = () => {
-  const { student, updateProfile } = useAuth();
+  const { student, updateProfile, addStudyTime, recordStudyActivity } = useAuth();
 
   const [topics, setTopics] = useState<TopicData[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<string>('all');
@@ -152,13 +152,15 @@ export const QuizzesPage: React.FC = () => {
   const handleCompleteQuiz = async () => {
     setIsSubmitted(true);
 
-    if (student?.id) {
+    // Record study time (15 mins) and study streak
+    addStudyTime(15, false);
+    recordStudyActivity();
+
+    if (student?.id && !student.id.startsWith('std_guest')) {
       try {
-        // Update Study Streak for today's activity
         const updatedStreak = await dbService.updateStudyStreakOnActivity(student.id);
         updateProfile({ studyStreakDays: updatedStreak });
 
-        // Refresh stats
         const freshStats = await dbService.getUserQuizStats(student.id);
         setQuizStats(freshStats);
       } catch (err) {

@@ -17,8 +17,11 @@ import { Badge } from '../../components/common/Badge';
 import { ProgressBar } from '../../components/common/ProgressBar';
 import { Select } from '../../components/common/Select';
 
+import { useAuth } from '../../context/AuthContext';
+
 export const FlashcardsPage: React.FC = () => {
   const { flashcards, subjects, toggleFlashcardKnown, toggleFlashcardBookmark } = useData();
+  const { addStudyTime, recordStudyActivity } = useAuth();
 
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('all');
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -33,11 +36,13 @@ export const FlashcardsPage: React.FC = () => {
   const handleNext = () => {
     setIsFlipped(false);
     setCurrentIndex((prev) => (prev + 1) % filteredCards.length);
+    addStudyTime(2, false); // 2 minutes study time credit
   };
 
   const handlePrev = () => {
     setIsFlipped(false);
     setCurrentIndex((prev) => (prev - 1 + filteredCards.length) % filteredCards.length);
+    addStudyTime(2, false);
   };
 
   const subjectOptions = [

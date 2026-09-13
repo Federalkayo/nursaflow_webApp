@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Sun, Moon, Bell, Flame, Search, Code, LogOut, CheckCircle2 } from 'lucide-react';
+import { Sun, Moon, Bell, Flame, Search, Code, LogOut, CheckCircle2, Clock } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { Avatar } from '../common/Avatar';
@@ -16,7 +16,7 @@ import { Crown } from 'lucide-react';
 
 export const Header: React.FC<HeaderProps> = ({ onOpenMobileDrawer }) => {
   const { theme, toggleTheme } = useTheme();
-  const { student, logout } = useAuth();
+  const { student, logout, isTimerRunning, timerSeconds, isTabActive, toggleTimer, formatTimer } = useAuth();
   const { isPro } = useSubscriptionStatus();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
@@ -61,6 +61,25 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileDrawer }) => {
           <Code className="w-3.5 h-3.5" />
           <span>Integrations</span>
         </button>
+
+        {/* Live Active Study Timer Badge */}
+        {isTimerRunning && (
+          <div
+            onClick={toggleTimer}
+            title={isTabActive ? 'Live Study Timer Running (Click to Pause)' : 'Timer Paused (Tab or Window Inactive)'}
+            className={`cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition-all border ${
+              isTabActive
+                ? 'bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-900/60 text-emerald-600 dark:text-emerald-400'
+                : 'bg-amber-500/10 dark:bg-amber-500/15 border-amber-300 dark:border-amber-900/60 text-amber-600 dark:text-amber-400'
+            }`}
+          >
+            <Clock className={`w-3.5 h-3.5 ${isTabActive ? 'animate-spin' : ''}`} />
+            <span>{formatTimer(timerSeconds)}</span>
+            {!isTabActive && (
+              <span className="text-[10px] uppercase font-bold tracking-tight opacity-80">(Paused)</span>
+            )}
+          </div>
+        )}
 
         {/* Study Streak Counter */}
         {student && (

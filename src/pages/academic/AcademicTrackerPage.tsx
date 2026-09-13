@@ -23,7 +23,7 @@ import { GpaCalculatorModal } from './GpaCalculatorModal';
 import { GradeLetter } from '../../types';
 
 export const AcademicTrackerPage: React.FC = () => {
-  const { student } = useAuth();
+  const { student, updateProfile } = useAuth();
   const {
     semesters,
     currentGpa,
@@ -40,6 +40,10 @@ export const AcademicTrackerPage: React.FC = () => {
   const [showAddCourseModal, setShowAddCourseModal] = useState(false);
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
   const [selectedSemesterId, setSelectedSemesterId] = useState<string>('');
+
+  // Target CGPA Edit state
+  const [isEditingTarget, setIsEditingTarget] = useState(false);
+  const [targetInput, setTargetInput] = useState(String(student?.targetCgpa ?? 4.50));
 
   // Add Semester Form State
   const [newSemName, setNewSemName] = useState('');
@@ -141,14 +145,55 @@ export const AcademicTrackerPage: React.FC = () => {
           <p className="text-xs text-slate-500">BSN Degree Requirement</p>
         </Card>
 
-        <Card className="space-y-1">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Target CGPA</p>
-          <h2 className="text-3xl font-extrabold text-amber-500">
-            {student?.targetCgpa.toFixed(2) || '4.50'}
-          </h2>
-          <p className="text-xs text-slate-500">
-            Deficit: {(student?.targetCgpa || 4.50) > cgpa ? ((student?.targetCgpa || 4.50) - cgpa).toFixed(2) : 'Target Reached! 🎉'}
-          </p>
+        <Card className="space-y-1 relative">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Target CGPA</p>
+            <button
+              onClick={() => {
+                setTargetInput(String(student?.targetCgpa ?? 4.50));
+                setIsEditingTarget(!isEditingTarget);
+              }}
+              className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1"
+            >
+              <Edit2 className="w-3 h-3" />
+              <span>{isEditingTarget ? 'Cancel' : 'Edit'}</span>
+            </button>
+          </div>
+
+          {isEditingTarget ? (
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="number"
+                step="0.01"
+                min="1.0"
+                max="5.0"
+                value={targetInput}
+                onChange={(e) => setTargetInput(e.target.value)}
+                className="w-24 px-2 py-1 text-sm border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
+              />
+              <button
+                onClick={() => {
+                  const val = parseFloat(targetInput);
+                  if (!isNaN(val) && val >= 1.0 && val <= 5.0) {
+                    updateProfile({ targetCgpa: val });
+                  }
+                  setIsEditingTarget(false);
+                }}
+                className="px-2.5 py-1 text-xs font-bold bg-brand-600 text-white rounded hover:bg-brand-700 transition"
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <>
+              <h2 className="text-3xl font-extrabold text-amber-500">
+                {(student?.targetCgpa ?? 4.50).toFixed(2)}
+              </h2>
+              <p className="text-xs text-slate-500">
+                Deficit: {(student?.targetCgpa ?? 4.50) > cgpa ? ((student?.targetCgpa ?? 4.50) - cgpa).toFixed(2) : 'Target Reached! 🎉'}
+              </p>
+            </>
+          )}
         </Card>
       </div>
 

@@ -22,6 +22,7 @@ import { INITIAL_STUDY_PLANS } from '../data/mockStudyPlans';
 import { INITIAL_COMMUNITY_POSTS } from '../data/mockPosts';
 import { INITIAL_STUDY_GROUPS, INITIAL_CONVERSATIONS } from '../data/mockGroups';
 import { useAuth } from './AuthContext';
+import { dbService } from '../services/supabase/dbService';
 
 interface DataContextType {
   // Academic Tracker
@@ -71,15 +72,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Semesters & Academic Data State
   const [semesters, setSemesters] = useState<Semester[]>(() => {
-    const saved = localStorage.getItem('nursaflow_semesters');
+    const key = student?.id ? `nursaflow_semesters_${student.id}` : 'nursaflow_semesters_guest';
+    const saved = localStorage.getItem(key);
     if (saved) {
       try { return JSON.parse(saved); } catch (e) {}
     }
-    return INITIAL_SEMESTERS;
+    return student?.id ? [] : INITIAL_SEMESTERS;
   });
 
   // Subjects & Study Data State
-  const [subjects] = useState<NursingSubject[]>(INITIAL_SUBJECTS);
+  const [subjects, setSubjects] = useState<NursingSubject[]>(INITIAL_SUBJECTS);
   const [flashcards, setFlashcards] = useState<Flashcard[]>(() => {
     const saved = localStorage.getItem('nursaflow_flashcards');
     if (saved) {
@@ -127,13 +129,78 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   // Persistence Effects
-  useEffect(() => { localStorage.setItem('nursaflow_semesters', JSON.stringify(semesters)); }, [semesters]);
+  useEffect(() => {
+    const key = student?.id ? `nursaflow_semesters_${student.id}` : 'nursaflow_semesters_guest';
+    localStorage.setItem(key, JSON.stringify(semesters));
+  }, [semesters, student?.id]);
   useEffect(() => { localStorage.setItem('nursaflow_flashcards', JSON.stringify(flashcards)); }, [flashcards]);
   useEffect(() => { localStorage.setItem('nursaflow_plans', JSON.stringify(studyPlans)); }, [studyPlans]);
   useEffect(() => { localStorage.setItem('nursaflow_notes', JSON.stringify(notes)); }, [notes]);
   useEffect(() => { localStorage.setItem('nursaflow_posts', JSON.stringify(posts)); }, [posts]);
   useEffect(() => { localStorage.setItem('nursaflow_groups', JSON.stringify(groups)); }, [groups]);
   useEffect(() => { localStorage.setItem('nursaflow_conversations', JSON.stringify(conversations)); }, [conversations]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (student?.id) {
+      dbService.getSemesters(student.id).then((fetched) => {
+        if (isMounted && fetched) setSemesters(fetched);
+      }).catch((e) => {
+        console.warn('[DataContext] getSemesters failed, using cached/mock:', e);
+      });
+    } else {
+      setSemesters(INITIAL_SEMESTERS);
+    }
+    return () => { isMounted = false; };
+  }, [student?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    dbService.getSubjects().then((fetched) => {
+      if (isMounted && fetched && fetched.length > 0) setSubjects(fetched);
+    }).catch((e) => {
+      console.warn('[DataContext] getSubjects failed, using cached/mock:', e);
+    });
+    return () => { isMounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    dbService.getFlashcards(student?.id).then((fetched) => {
+      if (isMounted && fetched && fetched.length > 0) setFlashcards(fetched);
+    }).catch((e) => {
+      console.warn('[DataContext] getFlashcards failed, using cached/mock:', e);
+    });
+    return () => { isMounted = false; };
+  }, [student?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (student?.id) {
+      dbService.getNotes(student.id).then((fetched) => {
+        if (isMounted && fetched) setNotes(fetched);
+      }).catch((e) => {
+        console.warn('[DataContext] getNotes failed, using cached/mock:', e);
+      });
+    } else {
+      setNotes(INITIAL_NOTES);
+    }
+    return () => { isMounted = false; };
+  }, [student?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (student?.id) {
+      dbService.getStudyPlans(student.id).then((fetched) => {
+        if (isMounted && fetched) setStudyPlans(fetched);
+      }).catch((e) => {
+        console.warn('[DataContext] getStudyPlans failed, using cached/mock:', e);
+      });
+    } else {
+      setStudyPlans(INITIAL_STUDY_PLANS);
+    }
+    return () => { isMounted = false; };
+  }, [student?.id]);
 
   // GPA Calculation Helper function
   const calculateGpaForCourses = (courses: Array<{ creditUnits: number; grade: GradeLetter }>): number => {
@@ -153,7 +220,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Recalculate semester GPAs, overall GPA & CGPA dynamically
   let totalQualityPointsAllSemesters = 0;
   let totalCreditsAllSemesters = 0;
-  let currentSemesterGpa = 4.32;
+  let currentSemesterGpa = 0.0;
 
   const recalculatedSemesters = semesters.map((sem) => {
     let semQualityPoints = 0;
@@ -195,8 +262,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Academic Actions
   const addSemester = (name: string, academicYear: string) => {
+    const tempId = `sem_${Date.now()}`;
     const newSem: Semester = {
-      id: `sem_${Date.now()}`,
+      id: tempId,
       name,
       academicYear,
       isCompleted: false,
@@ -205,13 +273,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       totalCredits: 0,
     };
     setSemesters((prev) => [...prev, newSem]);
+
+    if (student?.id) {
+      dbService.createSemester(student.id, name, academicYear).then((created) => {
+        setSemesters((prev) => prev.map((s) => (s.id === tempId ? created : s)));
+      }).catch((err) => {
+        console.warn('[DataContext] Failed to create semester on Supabase:', err);
+      });
+    }
   };
 
   const addCourse = (semesterId: string, courseData: Omit<Course, 'id' | 'gradePoints' | 'semesterId'>) => {
     const points = gradeScale.gradePoints[courseData.grade] ?? 0.0;
+    const tempId = `crs_${Date.now()}`;
     const newCourse: Course = {
       ...courseData,
-      id: `crs_${Date.now()}`,
+      id: tempId,
       gradePoints: points,
       semesterId,
     };
@@ -228,6 +305,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return sem;
       })
     );
+
+    if (student?.id) {
+      dbService.createCourse(student.id, semesterId, { ...courseData, gradePoints: points }).then((created) => {
+        setSemesters((prev) =>
+          prev.map((sem) =>
+            sem.id === semesterId
+              ? { ...sem, courses: sem.courses.map((c) => (c.id === tempId ? created : c)) }
+              : sem
+          )
+        );
+      }).catch((err) => {
+        console.warn('[DataContext] Failed to create course on Supabase:', err);
+      });
+    }
   };
 
   const updateCourse = (courseId: string, updates: Partial<Course>) => {
@@ -246,6 +337,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }),
       }))
     );
+    dbService.updateCourse(courseId, updates).catch(() => {});
   };
 
   const deleteCourse = (courseId: string) => {
@@ -255,32 +347,57 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         courses: sem.courses.filter((c) => c.id !== courseId),
       }))
     );
+    dbService.deleteCourse(courseId).catch(() => {});
   };
 
   const deleteSemester = (semesterId: string) => {
     setSemesters((prev) => prev.filter((sem) => sem.id !== semesterId));
+    dbService.deleteSemester(semesterId).catch(() => {});
   };
 
   // Study Actions
   const toggleFlashcardKnown = (id: string) => {
+    let updatedVal = false;
     setFlashcards((prev) =>
-      prev.map((fc) => (fc.id === id ? { ...fc, isKnown: !fc.isKnown } : fc))
+      prev.map((fc) => {
+        if (fc.id === id) {
+          updatedVal = !fc.isKnown;
+          return { ...fc, isKnown: updatedVal };
+        }
+        return fc;
+      })
     );
+    if (student?.id) {
+      dbService.updateFlashcardProgress(student.id, id, { isKnown: updatedVal }).catch(() => {});
+    }
   };
 
   const toggleFlashcardBookmark = (id: string) => {
+    let updatedVal = false;
     setFlashcards((prev) =>
-      prev.map((fc) => (fc.id === id ? { ...fc, isBookmarked: !fc.isBookmarked } : fc))
+      prev.map((fc) => {
+        if (fc.id === id) {
+          updatedVal = !fc.isBookmarked;
+          return { ...fc, isBookmarked: updatedVal };
+        }
+        return fc;
+      })
     );
+    if (student?.id) {
+      dbService.updateFlashcardProgress(student.id, id, { isBookmarked: updatedVal }).catch(() => {});
+    }
   };
 
   const addStudyPlan = (title: string, subjectId: string, tasksData: Array<{ day: any; taskTitle: string; taskType: any }>) => {
+    const startDate = new Date().toISOString().split('T')[0];
+    const targetEndDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const tempId = `plan_${Date.now()}`;
     const newPlan: StudyPlan = {
-      id: `plan_${Date.now()}`,
+      id: tempId,
       title,
       subjectId,
-      startDate: new Date().toISOString().split('T')[0],
-      targetEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      startDate,
+      targetEndDate,
       tasks: tasksData.map((t, idx) => ({
         id: `t_${Date.now()}_${idx}`,
         day: t.day,
@@ -290,31 +407,56 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })),
     };
     setStudyPlans((prev) => [newPlan, ...prev]);
+
+    if (student?.id) {
+      dbService.createStudyPlan(student.id, title, subjectId, tasksData).then((persistedPlan) => {
+        setStudyPlans((prev) => prev.map((p) => (p.id === tempId ? persistedPlan : p)));
+      }).catch((err) => {
+        console.warn('[DataContext] Failed to create study plan on Supabase:', err);
+      });
+    }
   };
 
   const toggleTaskCompletion = (planId: string, taskId: string) => {
+    let isCompleted = false;
     setStudyPlans((prev) =>
       prev.map((p) => {
         if (p.id === planId) {
           return {
             ...p,
-            tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, isCompleted: !t.isCompleted } : t)),
+            tasks: p.tasks.map((t) => {
+              if (t.id === taskId) {
+                isCompleted = !t.isCompleted;
+                return { ...t, isCompleted };
+              }
+              return t;
+            }),
           };
         }
         return p;
       })
     );
+    dbService.toggleStudyPlanTask(taskId, isCompleted).catch(() => {});
   };
 
   const addNote = (noteData: Omit<NursingNote, 'id' | 'createdAt' | 'updatedAt'>) => {
     const today = new Date().toISOString().split('T')[0];
+    const tempId = `note_${Date.now()}`;
     const newNote: NursingNote = {
       ...noteData,
-      id: `note_${Date.now()}`,
+      id: tempId,
       createdAt: today,
       updatedAt: today,
     };
     setNotes((prev) => [newNote, ...prev]);
+
+    if (student?.id) {
+      dbService.createNote(student.id, noteData).then((persistedNote) => {
+        setNotes((prev) => prev.map((n) => (n.id === tempId ? persistedNote : n)));
+      }).catch((err) => {
+        console.warn('[DataContext] Failed to create note on Supabase:', err);
+      });
+    }
   };
 
   const updateNote = (id: string, updates: Partial<NursingNote>) => {
@@ -322,10 +464,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setNotes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, ...updates, updatedAt: today } : n))
     );
+    dbService.updateNote(id, updates).catch(() => {});
   };
 
   const deleteNote = (id: string) => {
     setNotes((prev) => prev.filter((n) => n.id !== id));
+    dbService.deleteNote(id).catch(() => {});
   };
 
   // Community Actions

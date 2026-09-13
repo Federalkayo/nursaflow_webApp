@@ -9,8 +9,19 @@ import { Modal } from '../../components/common/Modal';
 import { Input } from '../../components/common/Input';
 import { Select } from '../../components/common/Select';
 
+import { useAuth } from '../../context/AuthContext';
+
 export const StudyPlansPage: React.FC = () => {
   const { studyPlans, toggleTaskCompletion, addStudyPlan, subjects } = useData();
+  const { addStudyTime, recordStudyActivity } = useAuth();
+
+  const handleToggleTask = (planId: string, taskId: string, currentlyCompleted: boolean) => {
+    toggleTaskCompletion(planId, taskId);
+    if (!currentlyCompleted) {
+      addStudyTime(10, false); // 10 minutes study time credit
+      recordStudyActivity();
+    }
+  };
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [planTitle, setPlanTitle] = useState('');
@@ -79,7 +90,7 @@ export const StudyPlansPage: React.FC = () => {
                 {plan.tasks.map((task) => (
                   <div
                     key={task.id}
-                    onClick={() => toggleTaskCompletion(plan.id, task.id)}
+                    onClick={() => handleToggleTask(plan.id, task.id, task.isCompleted)}
                     className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer ${
                       task.isCompleted
                         ? 'bg-emerald-500/5 border-emerald-500/20 text-slate-400 line-through'

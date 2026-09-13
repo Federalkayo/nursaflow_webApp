@@ -65,12 +65,12 @@ export const ProfilePage: React.FC = () => {
 
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Study Streak</span>
-            <span className="text-2xl font-black text-amber-400">{student?.studyStreakDays || 12} Days</span>
+            <span className="text-2xl font-black text-amber-400">{student?.studyStreakDays ?? 1} Days</span>
           </div>
 
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Hours</span>
-            <span className="text-2xl font-black text-purple-300">{student?.studyHoursTotal || 128.5} hrs</span>
+            <span className="text-2xl font-black text-purple-300">{student?.studyHoursTotal ?? 0} hrs</span>
           </div>
         </div>
       </Card>

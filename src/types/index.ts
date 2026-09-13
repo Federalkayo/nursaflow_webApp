@@ -17,6 +17,7 @@ export interface StudentProfile {
   completedCredits: number;
   totalRequiredCredits: number;
   achievements: Achievement[];
+  lastStudyDate?: string;
 }
 
 export interface Achievement {

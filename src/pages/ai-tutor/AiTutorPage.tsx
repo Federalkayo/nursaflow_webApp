@@ -1,38 +1,109 @@
 import React, { useState } from 'react';
-import { Bot, Send, Sparkles, User, RefreshCw, Code } from 'lucide-react';
+import { Bot, Send, Sparkles, CheckCircle, Crown } from 'lucide-react';
 import { geminiService } from '../../services/gemini/geminiService';
 import { ChatMessage } from '../../types';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Avatar } from '../../components/common/Avatar';
 import { useAuth } from '../../context/AuthContext';
-import { IntegrationModal } from '../../components/feedback/IntegrationModal';
-
 import { useSubscriptionStatus } from '../../hooks/useSubscriptionStatus';
 import { NavLink } from 'react-router-dom';
-import { Crown } from 'lucide-react';
+
+/**
+ * Renders bold Markdown and headers nicely formatted in React JSX
+ */
+const FormattedMessage: React.FC<{ text: string }> = ({ text }) => {
+  const lines = text.split('\n');
+
+  const renderBoldText = (str: string) => {
+    const parts = str.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return (
+          <strong key={i} className="font-semibold text-slate-900 dark:text-white">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      return part;
+    });
+  };
+
+  return (
+    <div className="space-y-2 leading-relaxed">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={idx} className="h-1" />;
+
+        if (trimmed.startsWith('### ')) {
+          return (
+            <h3 key={idx} className="text-base font-bold text-brand-600 dark:text-brand-400 mt-2 mb-1">
+              {trimmed.replace(/^###\s+/, '')}
+            </h3>
+          );
+        }
+
+        if (trimmed.startsWith('## ')) {
+          return (
+            <h2 key={idx} className="text-lg font-extrabold text-slate-900 dark:text-white mt-3 mb-1">
+              {trimmed.replace(/^##\s+/, '')}
+            </h2>
+          );
+        }
+
+        if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+          const content = trimmed.replace(/^[\*\-]\s+/, '');
+          return (
+            <div key={idx} className="ml-3 flex items-start gap-2 text-sm">
+              <span className="text-brand-500 font-bold">•</span>
+              <span>{renderBoldText(content)}</span>
+            </div>
+          );
+        }
+
+        if (/^\d+\.\s+/.test(trimmed)) {
+          const match = trimmed.match(/^(\d+\.)\s+(.*)/);
+          if (match) {
+            return (
+              <div key={idx} className="ml-3 flex items-start gap-2 text-sm">
+                <span className="text-brand-600 font-bold shrink-0">{match[1]}</span>
+                <span>{renderBoldText(match[2])}</span>
+              </div>
+            );
+          }
+        }
+
+        return (
+          <p key={idx} className="text-sm">
+            {renderBoldText(trimmed)}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
 
 export const AiTutorPage: React.FC = () => {
-  const { student } = useAuth();
+  const { student, addStudyTime, recordStudyActivity } = useAuth();
   const { isPro } = useSubscriptionStatus();
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'msg_1',
       sender: 'tutor',
-      text: `Hello ${student?.name.split(' ')[0] || 'Nurse Maya'}! 👋 I am your NursaFlow AI Tutor. How can I assist your nursing studies today? Feel free to select a prompt below or ask any NCLEX question!`,
+      text: `Hello ${student?.name.split(' ')[0] || 'Nurse'}! 👋 I am your NursaFlow AI Tutor. How can I assist your nursing studies today? Feel free to select a prompt below or ask any NCLEX question!`,
       timestamp: 'Just now',
     },
   ]);
 
   const [inputPrompt, setInputPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showGeminiModal, setShowGeminiModal] = useState(false);
 
-  const suggestedPrompts = [
+  const [suggestedPrompts, setSuggestedPrompts] = useState<string[]>([
     'Explain the difference between systolic and diastolic blood pressure.',
     'Quiz me on pharmacology cardiac glycosides.',
     'What is the fluid & insulin protocol for DKA management?',
-  ];
+  ]);
 
   const handleSendPrompt = async (promptText: string) => {
     if (!promptText.trim() || isLoading) return;
@@ -48,6 +119,9 @@ export const AiTutorPage: React.FC = () => {
     setInputPrompt('');
     setIsLoading(true);
 
+    addStudyTime(5, false); // 5 minutes study time credit per query
+    recordStudyActivity();
+
     try {
       const response = await geminiService.askNursingTutor(promptText, messages);
       const tutorMsg: ChatMessage = {
@@ -57,6 +131,10 @@ export const AiTutorPage: React.FC = () => {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, tutorMsg]);
+
+      if (response.suggestedFollowUps && response.suggestedFollowUps.length > 0) {
+        setSuggestedPrompts(response.suggestedFollowUps);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -81,9 +159,15 @@ export const AiTutorPage: React.FC = () => {
               </span>
             )}
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Powered by Gemini AI abstraction layer • NCLEX-RN tutoring & clinical explanations.
-          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Powered by Google Gemini AI • NCLEX-RN tutoring & clinical explanations.
+            </p>
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <CheckCircle className="w-3 h-3" />
+              NursaFlow AI Active
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -94,10 +178,6 @@ export const AiTutorPage: React.FC = () => {
               </Button>
             </NavLink>
           )}
-
-          <Button variant="outline" size="sm" icon={Code} onClick={() => setShowGeminiModal(true)}>
-            Gemini Specs
-          </Button>
         </div>
       </div>
 
@@ -144,7 +224,7 @@ export const AiTutorPage: React.FC = () => {
                       : 'bg-slate-100 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 rounded-tl-none border border-slate-200/80 dark:border-slate-700/80'
                   }`}
                 >
-                  <div className="whitespace-pre-line font-normal">{msg.text}</div>
+                  <FormattedMessage text={msg.text} />
                   <span className={`text-[10px] block text-right mt-1.5 font-semibold ${isUser ? 'text-brand-200' : 'text-slate-400'}`}>
                     {msg.timestamp}
                   </span>
@@ -184,13 +264,6 @@ export const AiTutorPage: React.FC = () => {
           </Button>
         </form>
       </Card>
-
-      <IntegrationModal
-        isOpen={showGeminiModal}
-        onClose={() => setShowGeminiModal(false)}
-        serviceType="gemini"
-        featureTitle="Gemini AI Tutor Integration"
-      />
     </div>
   );
 };

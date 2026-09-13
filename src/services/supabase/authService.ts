@@ -104,25 +104,55 @@ export const authService = {
    * Convert Supabase User + Profile into StudentProfile format
    */
   async buildStudentProfile(user: User): Promise<StudentProfile> {
+    const fallbackName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'NursaFlow Student';
+    const fallbackSchool = user.user_metadata?.school || 'NursaFlow Nursing Academy';
+    const fallbackLevel = user.user_metadata?.level || '300 Level (BSN)';
+
+    let localSaved: Partial<StudentProfile> = {};
+    try {
+      const savedStr = localStorage.getItem('nursaflow_student');
+      if (savedStr) localSaved = JSON.parse(savedStr);
+    } catch (e) {}
+
     try {
       const dbProfile = await dbService.getProfile(user.id);
+      const name = dbProfile?.full_name || fallbackName;
+
       return {
-        ...INITIAL_STUDENT_PROFILE,
         id: user.id,
-        email: user.email || INITIAL_STUDENT_PROFILE.email,
-        name: dbProfile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || INITIAL_STUDENT_PROFILE.name,
-        school: dbProfile?.school || user.user_metadata?.school || INITIAL_STUDENT_PROFILE.school,
-        level: dbProfile?.level || user.user_metadata?.level || INITIAL_STUDENT_PROFILE.level,
-        targetCgpa: dbProfile?.target_gpa ? Number(dbProfile.target_gpa) : INITIAL_STUDENT_PROFILE.targetCgpa,
-        studyStreakDays: dbProfile?.current_streak || INITIAL_STUDENT_PROFILE.studyStreakDays,
+        email: user.email || '',
+        name,
+        school: dbProfile?.school || fallbackSchool,
+        level: dbProfile?.level || fallbackLevel,
+        avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+        gpa: localSaved.gpa || 0.0,
+        cgpa: localSaved.cgpa || 0.0,
+        targetCgpa: dbProfile?.target_gpa ? Number(dbProfile.target_gpa) : (localSaved.targetCgpa ?? 4.50),
+        studyStreakDays: dbProfile?.current_streak ?? localSaved.studyStreakDays ?? 1,
+        studyHoursTotal: dbProfile?.total_study_hours ?? localSaved.studyHoursTotal ?? 0,
+        completedCredits: localSaved.completedCredits || 0,
+        totalRequiredCredits: 120,
+        achievements: localSaved.achievements || [],
+        lastStudyDate: dbProfile?.last_active_date || localSaved.lastStudyDate,
       };
     } catch (e) {
       console.warn('[Supabase Auth Warning] Failed to load DB profile, using user metadata:', e);
       return {
-        ...INITIAL_STUDENT_PROFILE,
         id: user.id,
-        email: user.email || INITIAL_STUDENT_PROFILE.email,
-        name: user.user_metadata?.full_name || user.email?.split('@')[0] || INITIAL_STUDENT_PROFILE.name,
+        email: user.email || '',
+        name: fallbackName,
+        school: fallbackSchool,
+        level: fallbackLevel,
+        avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fallbackName)}`,
+        gpa: localSaved.gpa || 0.0,
+        cgpa: localSaved.cgpa || 0.0,
+        targetCgpa: localSaved.targetCgpa ?? 4.50,
+        studyStreakDays: localSaved.studyStreakDays ?? 1,
+        studyHoursTotal: localSaved.studyHoursTotal ?? 0,
+        completedCredits: localSaved.completedCredits || 0,
+        totalRequiredCredits: 120,
+        achievements: localSaved.achievements || [],
+        lastStudyDate: localSaved.lastStudyDate,
       };
     }
   },

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings, Sun, Moon, User, Code, Square, CreditCard, Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -17,6 +17,15 @@ export const SettingsPage: React.FC = () => {
   const [school, setSchool] = useState(student?.school || '');
   const [level, setLevel] = useState(student?.level || '');
   const [targetCgpa, setTargetCgpa] = useState(student?.targetCgpa || 4.50);
+
+  useEffect(() => {
+    if (student) {
+      setName(student.name || '');
+      setSchool(student.school || '');
+      setLevel(student.level || '');
+      setTargetCgpa(student.targetCgpa || 4.50);
+    }
+  }, [student]);
 
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [checkoutLoadingPlan, setCheckoutLoadingPlan] = useState<string | null>(null);
