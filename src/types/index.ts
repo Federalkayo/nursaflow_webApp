@@ -211,6 +211,8 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   isThinking?: boolean;
+  isFallback?: boolean;
+  fallbackReason?: string;
 }
 
 // ==========================================
