@@ -33,6 +33,7 @@ export const CommunityFeedPage: React.FC = () => {
     toggleLikePost,
     toggleBookmarkPost,
     addCommentToPost,
+    fetchCommentsForPost,
     isCommunityLoading,
     hasNewPosts,
     refreshPosts,
@@ -61,6 +62,25 @@ export const CommunityFeedPage: React.FC = () => {
   // Comment State per post
   const [activeCommentPostId, setActiveCommentPostId] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
+  const [loadingCommentsPostId, setLoadingCommentsPostId] = useState<string | null>(null);
+
+  // Expanding a post's comments always fetches the authoritative, full comment list from
+  // the server (getComments), rather than trusting whatever was embedded at initial feed
+  // load (getPosts always returns comments: []). This fixes comments from other users, or
+  // from earlier sessions, not showing up / count mismatching the visible list.
+  const handleToggleComments = async (postId: string) => {
+    const isOpening = activeCommentPostId !== postId;
+    setActiveCommentPostId(isOpening ? postId : null);
+
+    if (isOpening) {
+      setLoadingCommentsPostId(postId);
+      try {
+        await fetchCommentsForPost(postId);
+      } finally {
+        setLoadingCommentsPostId(null);
+      }
+    }
+  };
 
   const tags = ['All', 'Anatomy Tips', 'Pharmacology Tips', 'NCLEX', 'Study Groups', 'Clinical Stories'];
 
@@ -289,7 +309,7 @@ export const CommunityFeedPage: React.FC = () => {
                     </button>
 
                     <button
-                      onClick={() => setActiveCommentPostId(activeCommentPostId === post.id ? null : post.id)}
+                      onClick={() => handleToggleComments(post.id)}
                       className="flex items-center gap-1.5 hover:text-brand-500 transition-colors cursor-pointer"
                     >
                       <MessageSquare className="w-4 h-4" />
@@ -318,6 +338,14 @@ export const CommunityFeedPage: React.FC = () => {
                   <div className="pt-4 space-y-4 border-t border-slate-100 dark:border-slate-800 animate-in fade-in duration-200">
                     {/* Comments List */}
                     <div className="space-y-3">
+                      {loadingCommentsPostId === post.id ? (
+                        <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Loading comments...</span>
+                        </div>
+                      ) : post.comments.length === 0 ? (
+                        <p className="text-xs text-slate-400 py-1">No comments yet — be the first to reply.</p>
+                      ) : null}
                       {post.comments.map((c) => (
                         <div key={c.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 flex items-start gap-3">
                           <Avatar src={c.authorAvatar} name={c.authorName} size="sm" />

@@ -372,6 +372,31 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'post_comments' },
+        async (payload) => {
+          const newComment = payload.new as any;
+          if (!newComment) return;
+
+          // The current user's own comments are already added via the optimistic
+          // path in addCommentToPost — skip those to avoid a duplicate entry.
+          if (newComment.author_id === student?.id) return;
+
+          // Re-fetch the authoritative comment list for this post (with joined
+          // author profile info) so other users' comment content actually shows
+          // up live, not just the commentsCount ticking up via the UPDATE handler
+          // above.
+          try {
+            const freshComments = await dbService.getComments(newComment.post_id);
+            setPosts((prev) =>
+              prev.map((p) => (p.id === newComment.post_id ? { ...p, comments: freshComments } : p))
+            );
+          } catch (err) {
+            console.error('[DataContext] Failed to refresh comments after realtime insert:', err);
+          }
+        }
+      )
       .subscribe();
 
     return () => {
