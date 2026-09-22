@@ -43,6 +43,26 @@ export interface QuizAttemptData {
   created_at?: string;
 }
 
+export type QuizLevel = 'easy' | 'medium' | 'hard';
+
+export const LEVEL_QUESTION_COUNTS: Record<QuizLevel, number> = {
+  easy: 15,
+  medium: 30,
+  hard: 60,
+};
+
+export const LEVEL_ORDER: QuizLevel[] = ['easy', 'medium', 'hard'];
+export const PASS_THRESHOLD_PERCENT = 70;
+
+export interface TopicLevelProgress {
+  /** The level the student should be shown as their "next up" session for this topic. */
+  unlockedLevel: QuizLevel;
+  /** True once hard has been passed — there's nothing further to unlock. */
+  allLevelsPassed: boolean;
+  /** Best score (%) per level, null if never attempted. */
+  bestScores: Record<QuizLevel, number | null>;
+}
+
 export interface StudyStreakData {
   id?: string;
   user_id: string;
@@ -470,8 +490,271 @@ export const dbService = {
   },
 
   // ==========================================
-  // 4. STUDY STREAKS TRACKING
+  // 3b. LEVELED QUIZ PRACTICE (easy 15 / medium 30 / hard 60, unlock on 70%+)
   // ==========================================
+
+  /** Reads the student's own completed sessions for a topic to figure out which level they've unlocked. */
+  async getTopicLevelProgress(userId: string, topicId: string): Promise<TopicLevelProgress> {
+    const bestScores: Record<QuizLevel, number | null> = { easy: null, medium: null, hard: null };
+
+    try {
+      const { data, error } = await supabase
+        .from('study_sessions')
+        .select('difficulty, score, num_questions')
+        .eq('user_id', userId)
+        .eq('topic_id', topicId)
+        .eq('status', 'completed')
+        .eq('mode', 'practice');
+
+      if (error) throw error;
+
+      for (const row of data || []) {
+        const level = row.difficulty as QuizLevel;
+        if (!LEVEL_ORDER.includes(level) || !row.num_questions) continue;
+        const pct = Math.round(((row.score || 0) / row.num_questions) * 100);
+        if (bestScores[level] === null || pct > (bestScores[level] as number)) {
+          bestScores[level] = pct;
+        }
+      }
+    } catch (e) {
+      console.warn('[Supabase DB Warning] getTopicLevelProgress fallback:', e);
+    }
+
+    // Walk the level order: stay on the first level not yet passed at 70%+.
+    let unlockedLevel: QuizLevel = 'easy';
+    let allLevelsPassed = false;
+    for (let i = 0; i < LEVEL_ORDER.length; i++) {
+      const level = LEVEL_ORDER[i];
+      const passed = (bestScores[level] ?? 0) >= PASS_THRESHOLD_PERCENT;
+      if (!passed) {
+        unlockedLevel = level;
+        break;
+      }
+      if (i === LEVEL_ORDER.length - 1) {
+        allLevelsPassed = true;
+        unlockedLevel = level; // stays on 'hard' — nothing further to unlock
+      }
+    }
+
+    return { unlockedLevel, allLevelsPassed, bestScores };
+  },
+
+  /**
+   * Starts a new leveled session: pulls a fresh random set of N published
+   * questions for this topic+level (server-side random sample, not loaded-
+   * then-filtered client-side) and records the session.
+   */
+  async startLevelSession(
+    userId: string,
+    topicId: string,
+    level: QuizLevel
+  ): Promise<{ sessionId: string | null; questions: QuizQuestionData[] }> {
+    const count = LEVEL_QUESTION_COUNTS[level];
+
+    const { data: questions, error: qError } = await supabase.rpc('random_published_questions', {
+      p_topic_id: topicId,
+      p_difficulty: level,
+      p_limit: count,
+    });
+
+    if (qError) {
+      console.error('[Supabase DB Error] startLevelSession (fetch questions):', qError);
+      return { sessionId: null, questions: [] };
+    }
+
+    const fetchedQuestions: QuizQuestionData[] = questions || [];
+
+    const { data: session, error: sError } = await supabase
+      .from('study_sessions')
+      .insert({
+        user_id: userId,
+        mode: 'practice',
+        topic_id: topicId,
+        difficulty: level,
+        question_ids: fetchedQuestions.map((q) => q.id),
+        num_questions: fetchedQuestions.length,
+        status: 'in_progress',
+      })
+      .select('id')
+      .single();
+
+    if (sError) {
+      console.warn('[Supabase DB Warning] startLevelSession (create session record):', sError);
+      // Quiz can still proceed without a session row — level progress just won't be trackable for this attempt.
+      return { sessionId: null, questions: fetchedQuestions };
+    }
+
+    return { sessionId: session.id, questions: fetchedQuestions };
+  },
+
+  /** Marks a leveled session complete with its final score and returns pass/unlock info. */
+  async completeLevelSession(
+    sessionId: string | null,
+    correctCount: number,
+    totalCount: number
+  ): Promise<{ passed: boolean; percentage: number }> {
+    const percentage = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
+    const passed = percentage >= PASS_THRESHOLD_PERCENT;
+
+    if (sessionId) {
+      const { error } = await supabase
+        .from('study_sessions')
+        .update({ status: 'completed', score: correctCount, completed_at: new Date().toISOString() })
+        .eq('id', sessionId);
+
+      if (error) {
+        console.warn('[Supabase DB Warning] completeLevelSession:', error);
+      }
+    }
+
+    return { passed, percentage };
+  },
+
+  // ==========================================
+  // 3c. EXAM MODE (fixed size, mixed difficulty/topic, no unlock semantics)
+  // ==========================================
+
+  /**
+   * Starts an exam session: a mixed-difficulty random set, optionally
+   * restricted to one topic (null/undefined = across all published topics).
+   * Unlike practice levels, exams don't gate on a pass threshold — they're
+   * for self-assessment, and every attempt is recorded regardless of score.
+   */
+  async startExamSession(
+    userId: string,
+    numQuestions: number,
+    topicId?: string | null
+  ): Promise<{ sessionId: string | null; questions: QuizQuestionData[] }> {
+    const { data: questions, error: qError } = await supabase.rpc('random_exam_questions', {
+      p_topic_id: topicId || null,
+      p_limit: numQuestions,
+    });
+
+    if (qError) {
+      console.error('[Supabase DB Error] startExamSession (fetch questions):', qError);
+      return { sessionId: null, questions: [] };
+    }
+
+    const fetchedQuestions: QuizQuestionData[] = questions || [];
+
+    const { data: session, error: sError } = await supabase
+      .from('study_sessions')
+      .insert({
+        user_id: userId,
+        mode: 'exam',
+        topic_id: topicId || null,
+        difficulty: null,
+        question_ids: fetchedQuestions.map((q) => q.id),
+        num_questions: fetchedQuestions.length,
+        status: 'in_progress',
+      })
+      .select('id')
+      .single();
+
+    if (sError) {
+      console.warn('[Supabase DB Warning] startExamSession (create session record):', sError);
+      return { sessionId: null, questions: fetchedQuestions };
+    }
+
+    return { sessionId: session.id, questions: fetchedQuestions };
+  },
+
+  /** Marks an exam session complete. No pass/fail — just records the final score. */
+  async completeExamSession(
+    sessionId: string | null,
+    correctCount: number,
+    totalCount: number
+  ): Promise<{ percentage: number }> {
+    const percentage = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
+
+    if (sessionId) {
+      const { error } = await supabase
+        .from('study_sessions')
+        .update({ status: 'completed', score: correctCount, completed_at: new Date().toISOString() })
+        .eq('id', sessionId);
+
+      if (error) {
+        console.warn('[Supabase DB Warning] completeExamSession:', error);
+      }
+    }
+
+    return { percentage };
+  },
+
+  // ==========================================
+  // 3d. BOOKMARKED QUESTIONS
+  // ==========================================
+
+  async getBookmarkedQuestionIds(userId: string): Promise<Set<string>> {
+    const { data, error } = await supabase
+      .from('question_bookmarks')
+      .select('question_id')
+      .eq('user_id', userId);
+
+    if (error) {
+      console.warn('[Supabase DB Warning] getBookmarkedQuestionIds:', error);
+      return new Set();
+    }
+    return new Set((data || []).map((r) => r.question_id));
+  },
+
+  async setBookmark(userId: string, questionId: string, bookmarked: boolean): Promise<boolean> {
+    if (bookmarked) {
+      const { error } = await supabase
+        .from('question_bookmarks')
+        .insert({ user_id: userId, question_id: questionId });
+      // Unique constraint violation just means it's already bookmarked — not a real error.
+      if (error && error.code !== '23505') {
+        console.warn('[Supabase DB Warning] setBookmark (add):', error);
+        return false;
+      }
+      return true;
+    }
+
+    const { error } = await supabase
+      .from('question_bookmarks')
+      .delete()
+      .eq('user_id', userId)
+      .eq('question_id', questionId);
+
+    if (error) {
+      console.warn('[Supabase DB Warning] setBookmark (remove):', error);
+      return false;
+    }
+    return true;
+  },
+
+  /** Full bookmarked questions with their content, for a "My Bookmarks" review list. */
+  async getBookmarkedQuestions(userId: string): Promise<QuizQuestionData[]> {
+    const { data: bookmarkRows, error: bError } = await supabase
+      .from('question_bookmarks')
+      .select('question_id, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (bError || !bookmarkRows || bookmarkRows.length === 0) {
+      if (bError) console.warn('[Supabase DB Warning] getBookmarkedQuestions (bookmarks):', bError);
+      return [];
+    }
+
+    const questionIds = bookmarkRows.map((r) => r.question_id);
+    const { data: questions, error: qError } = await supabase
+      .from('quiz_questions')
+      .select('*')
+      .in('id', questionIds)
+      .eq('status', 'published');
+
+    if (qError) {
+      console.warn('[Supabase DB Warning] getBookmarkedQuestions (questions):', qError);
+      return [];
+    }
+
+    // Preserve bookmark order (most recently bookmarked first).
+    const byId = new Map((questions || []).map((q) => [q.id, q]));
+    return questionIds.map((id) => byId.get(id)).filter((q): q is QuizQuestionData => !!q);
+  },
+
+
   async getStudyStreak(userId: string): Promise<StudyStreakData | null> {
     const { data, error } = await supabase
       .from('study_streaks')

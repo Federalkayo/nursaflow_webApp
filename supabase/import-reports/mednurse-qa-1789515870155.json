@@ -1,0 +1,13 @@
+{
+  "source": "MedNurse-QA",
+  "totalFetched": 20,
+  "imported": 4,
+  "skippedDuplicate": 6,
+  "skippedInvalid": 10,
+  "rejectedReasons": {
+    "distractor_generation_failed": 10
+  },
+  "distractorGenFailures": 10,
+  "startedAt": "2026-09-15T23:44:04.235Z",
+  "finishedAt": "2026-09-15T23:44:30.154Z"
+}
