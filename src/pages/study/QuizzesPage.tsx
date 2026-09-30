@@ -29,6 +29,7 @@ import {
   LEVEL_ORDER,
   PASS_THRESHOLD_PERCENT,
   TopicLevelProgress,
+  MIN_SESSION_QUESTIONS,
 } from '../../services/supabase/dbService';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
@@ -45,6 +46,7 @@ export const QuizzesPage: React.FC = () => {
 
   // Leveled practice state
   const [topicProgress, setTopicProgress] = useState<TopicLevelProgress | null>(null);
+  const [topicQuestionCounts, setTopicQuestionCounts] = useState<Record<QuizLevel, number> | null>(null);
   const [isProgressLoading, setIsProgressLoading] = useState<boolean>(false);
   const [activeLevel, setActiveLevel] = useState<QuizLevel | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -100,20 +102,26 @@ export const QuizzesPage: React.FC = () => {
     loadInitialData();
   }, [student?.id]);
 
-  // Load this student's level progress whenever the selected topic changes.
+  // Load this student's level progress + real question counts whenever the selected topic changes.
   useEffect(() => {
     const loadProgress = async () => {
       if (!selectedTopicId || !student?.id) {
         setTopicProgress(null);
+        setTopicQuestionCounts(null);
         return;
       }
       setIsProgressLoading(true);
       try {
-        const progress = await dbService.getTopicLevelProgress(student.id, selectedTopicId);
+        const [progress, counts] = await Promise.all([
+          dbService.getTopicLevelProgress(student.id, selectedTopicId),
+          dbService.getTopicQuestionCounts(selectedTopicId),
+        ]);
         setTopicProgress(progress);
+        setTopicQuestionCounts(counts);
       } catch (err) {
         console.error('[QuizzesPage Error] Failed to load topic progress:', err);
         setTopicProgress(null);
+        setTopicQuestionCounts(null);
       } finally {
         setIsProgressLoading(false);
       }
@@ -464,13 +472,18 @@ export const QuizzesPage: React.FC = () => {
                     : false;
                   const isLocked = idx > unlockedIdx && !isPassed;
                   const bestScore = topicProgress?.bestScores[level] ?? null;
-                  const count = LEVEL_QUESTION_COUNTS[level];
+                  const standardCount = LEVEL_QUESTION_COUNTS[level];
+                  const availableCount = topicQuestionCounts?.[level] ?? 0;
+                  const actualCount = Math.min(standardCount, availableCount);
+                  const isInsufficientContent = availableCount < MIN_SESSION_QUESTIONS;
 
                   return (
                     <Card
                       key={level}
                       className={`p-5 space-y-4 relative overflow-hidden ${
-                        isLocked ? 'opacity-60' : 'bg-gradient-to-br from-slate-900 via-slate-900 to-brand-950 text-white border-slate-800'
+                        isLocked || isInsufficientContent
+                          ? 'opacity-60'
+                          : 'bg-gradient-to-br from-slate-900 via-slate-900 to-brand-950 text-white border-slate-800'
                       }`}
                     >
                       <div className="flex items-center justify-between">
@@ -482,23 +495,29 @@ export const QuizzesPage: React.FC = () => {
                       </div>
 
                       <div>
-                        <p className={`text-sm font-bold ${isLocked ? 'text-slate-500 dark:text-slate-400' : 'text-white'}`}>
-                          {count} Questions
+                        <p className={`text-sm font-bold ${isLocked || isInsufficientContent ? 'text-slate-500 dark:text-slate-400' : 'text-white'}`}>
+                          {isInsufficientContent
+                            ? `Only ${availableCount} question${availableCount === 1 ? '' : 's'} so far`
+                            : actualCount < standardCount
+                            ? `${actualCount} Questions (fewer than usual)`
+                            : `${actualCount} Questions`}
                         </p>
-                        <p className={`text-xs ${isLocked ? 'text-slate-500' : 'text-slate-300'}`}>
+                        <p className={`text-xs ${isLocked || isInsufficientContent ? 'text-slate-500' : 'text-slate-300'}`}>
                           {bestScore !== null ? `Best score: ${bestScore}%` : 'Not attempted yet'}
                         </p>
                       </div>
 
                       <Button
-                        variant={isLocked ? 'outline' : 'primary'}
+                        variant={isLocked || isInsufficientContent ? 'outline' : 'primary'}
                         size="sm"
                         icon={isLocked ? Lock : Zap}
-                        onClick={() => !isLocked && handleStartLevel(level)}
-                        disabled={isLocked || isStarting || !selectedTopicId}
+                        onClick={() => !isLocked && !isInsufficientContent && handleStartLevel(level)}
+                        disabled={isLocked || isInsufficientContent || isStarting || !selectedTopicId}
                         className="w-full"
                       >
-                        {isLocked
+                        {isInsufficientContent
+                          ? 'Not enough questions yet'
+                          : isLocked
                           ? `Pass ${LEVEL_ORDER[idx - 1]} to unlock`
                           : bestScore !== null
                           ? 'Retake'

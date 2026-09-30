@@ -1,0 +1,15 @@
+{
+  "source": "AfriMed-QA",
+  "totalFetched": 15275,
+  "imported": 0,
+  "skippedDuplicate": 0,
+  "skippedInvalid": 15275,
+  "rejectedReasons": {
+    "not_mcq_type": 11236,
+    "correct_answer_unresolvable": 4034,
+    "flagged_low_quality_by_reviewer": 5
+  },
+  "distractorGenFailures": 0,
+  "startedAt": "2026-09-22T20:21:02.650Z",
+  "finishedAt": "2026-09-22T20:21:06.630Z"
+}

@@ -53,6 +53,8 @@ export const LEVEL_QUESTION_COUNTS: Record<QuizLevel, number> = {
 
 export const LEVEL_ORDER: QuizLevel[] = ['easy', 'medium', 'hard'];
 export const PASS_THRESHOLD_PERCENT = 70;
+/** Below this many available questions, a level is treated as not-yet-startable rather than run as a token-sized session. */
+export const MIN_SESSION_QUESTIONS = 5;
 
 export interface TopicLevelProgress {
   /** The level the student should be shown as their "next up" session for this topic. */
@@ -539,17 +541,47 @@ export const dbService = {
     return { unlockedLevel, allLevelsPassed, bestScores };
   },
 
+  /** Real per-difficulty published question counts for a topic — used to size sessions and show honest counts in the UI. */
+  async getTopicQuestionCounts(topicId: string): Promise<Record<QuizLevel, number>> {
+    const counts: Record<QuizLevel, number> = { easy: 0, medium: 0, hard: 0 };
+    try {
+      const { data, error } = await supabase.rpc('topic_question_counts', { p_topic_id: topicId });
+      if (error) throw error;
+      for (const row of data || []) {
+        if (LEVEL_ORDER.includes(row.difficulty as QuizLevel)) {
+          counts[row.difficulty as QuizLevel] = Number(row.cnt);
+        }
+      }
+    } catch (e) {
+      console.warn('[Supabase DB Warning] getTopicQuestionCounts:', e);
+    }
+    return counts;
+  },
+
   /**
    * Starts a new leveled session: pulls a fresh random set of N published
    * questions for this topic+level (server-side random sample, not loaded-
    * then-filtered client-side) and records the session.
+   *
+   * The session is sized to min(standard count, what's actually available)
+   * so a thinly-populated topic (e.g. a small specialty) is still startable
+   * rather than permanently blocked — below MIN_SESSION_QUESTIONS available,
+   * it's treated as not-yet-startable instead of running a token-sized quiz.
    */
   async startLevelSession(
     userId: string,
     topicId: string,
     level: QuizLevel
   ): Promise<{ sessionId: string | null; questions: QuizQuestionData[] }> {
-    const count = LEVEL_QUESTION_COUNTS[level];
+    const standardCount = LEVEL_QUESTION_COUNTS[level];
+    const counts = await this.getTopicQuestionCounts(topicId);
+    const available = counts[level];
+
+    if (available < MIN_SESSION_QUESTIONS) {
+      return { sessionId: null, questions: [] };
+    }
+
+    const count = Math.min(standardCount, available);
 
     const { data: questions, error: qError } = await supabase.rpc('random_published_questions', {
       p_topic_id: topicId,

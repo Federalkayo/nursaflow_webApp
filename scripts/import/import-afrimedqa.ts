@@ -52,52 +52,66 @@ function parseArgs() {
   };
 }
 
-/** answer_options / correct_answer may come through as a JSON-encoded string or a real array. */
-function asStringArray(value: string | string[] | null): string[] {
+/**
+ * The source's answer_options is a JSON OBJECT keyed "option1".."option5"
+ * (confirmed against a real row — NOT a JSON array, despite how similar
+ * fields look in other datasets). Returns an ordered {key, text} list,
+ * ordered by the numeric suffix in the key so option1 comes first.
+ */
+function parseAnswerOptionsObject(value: string | string[] | null): { key: string; text: string }[] {
   if (!value) return [];
-  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean);
-  const trimmed = value.trim();
-  if (trimmed.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.map((v) => String(v).trim()).filter(Boolean);
-    } catch {
-      // fall through to delimiter split below
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Object.entries(parsed)
+        .map(([key, text]) => ({ key, text: String(text).trim() }))
+        .filter((o) => o.text)
+        .sort((a, b) => {
+          const na = parseInt(a.key.replace(/[^0-9]/g, ''), 10) || 0;
+          const nb = parseInt(b.key.replace(/[^0-9]/g, ''), 10) || 0;
+          return na - nb;
+        });
     }
+    if (Array.isArray(parsed)) {
+      return parsed.map((v, i) => ({ key: String(i), text: String(v).trim() })).filter((o) => o.text);
+    }
+  } catch {
+    // Not JSON — fall through to treating it as a single option (rejected downstream, too few options).
   }
-  return trimmed
-    .split(/[|;]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return [{ key: '0', text: raw.trim() }];
 }
 
 /**
- * The source's correct_answer is sometimes the full option text, sometimes
- * a short label (a bare letter like "A", or a 1-based index like "2").
- * Returns the resolved full-text answer, or null if it can't be matched to
- * any option — callers should skip the row rather than guess.
+ * The source's correct_answer is the OBJECT KEY (e.g. "option4"), matched
+ * directly against parseAnswerOptionsObject()'s keys — confirmed against a
+ * real row. Falls back to matching option text directly, or a bare letter/
+ * number, in case other rows use a different convention. Returns the
+ * resolved full option TEXT (what actually gets stored/shown), or null if
+ * unresolvable — callers should skip the row rather than guess.
  */
-function resolveCorrectAnswer(rawCorrect: string, options: string[]): string | null {
+function resolveCorrectAnswer(rawCorrect: string, parsedOptions: { key: string; text: string }[]): string | null {
   const trimmed = rawCorrect.trim();
-  if (!trimmed || options.length === 0) return null;
+  if (!trimmed || parsedOptions.length === 0) return null;
 
-  // Case 1: exact (case-insensitive) match against option text.
-  const directMatch = options.find((o) => o.toLowerCase() === trimmed.toLowerCase());
-  if (directMatch) return directMatch;
+  const byKey = parsedOptions.find((o) => o.key.toLowerCase() === trimmed.toLowerCase());
+  if (byKey) return byKey.text;
 
-  // Case 2: a bare letter label (A/B/C/D/E), optionally with a trailing
-  // period/paren, e.g. "A", "A.", "(A)".
+  const byText = parsedOptions.find((o) => o.text.toLowerCase() === trimmed.toLowerCase());
+  if (byText) return byText.text;
+
   const letterMatch = trimmed.match(/^\(?([A-Ea-e])\)?\.?$/);
   if (letterMatch) {
     const idx = letterMatch[1].toUpperCase().charCodeAt(0) - 65;
-    if (idx >= 0 && idx < options.length) return options[idx];
+    if (idx >= 0 && idx < parsedOptions.length) return parsedOptions[idx].text;
   }
 
-  // Case 3: a bare 1-based number.
-  const numMatch = trimmed.match(/^(\d+)\.?$/);
+  const numMatch = trimmed.match(/^([0-9]+)\.?$/);
   if (numMatch) {
     const idx = parseInt(numMatch[1], 10) - 1;
-    if (idx >= 0 && idx < options.length) return options[idx];
+    if (idx >= 0 && idx < parsedOptions.length) return parsedOptions[idx].text;
   }
 
   return null;
@@ -138,24 +152,29 @@ async function main() {
       continue;
     }
 
+    const question = (raw.question_clean || raw.question || '').trim();
+    const parsedOptions = parseAnswerOptionsObject(raw.answer_options);
+    const options = parsedOptions.map((o) => o.text);
+    const rawCorrect = Array.isArray(raw.correct_answer) ? raw.correct_answer[0] : raw.correct_answer;
+
     if (!loggedSampleMcq) {
-      console.log('Sample MCQ row (for verifying field shapes):', JSON.stringify(raw).slice(0, 500));
+      console.log('--- Sample MCQ row (raw field values, for debugging) ---');
+      console.log('answer_options (parsed):', JSON.stringify(parsedOptions));
+      console.log('correct_answer (raw):', JSON.stringify(raw.correct_answer));
+      console.log('---------------------------------------------------------');
       loggedSampleMcq = true;
     }
 
-    const question = (raw.question_clean || raw.question || '').trim();
-    const options = asStringArray(raw.answer_options);
-    const rawCorrectValues = asStringArray(raw.correct_answer);
-
-    if (rawCorrectValues.length !== 1) {
-      // Multiple-correct-answer MCQs don't fit the single-answer schema
-      // quiz_questions uses today — skip rather than guess which one "counts".
+    if (!rawCorrect) {
       rejectRow(report, 'multiple_or_zero_correct_answers_unsupported');
       continue;
     }
 
-    const resolvedCorrect = resolveCorrectAnswer(rawCorrectValues[0], options);
+    const resolvedCorrect = resolveCorrectAnswer(rawCorrect, parsedOptions);
     if (!resolvedCorrect) {
+      if (report.rejectedReasons['correct_answer_unresolvable'] === undefined) {
+        console.log('[unresolvable example] options:', JSON.stringify(parsedOptions), 'correct_answer:', JSON.stringify(rawCorrect));
+      }
       rejectRow(report, 'correct_answer_unresolvable');
       continue;
     }
