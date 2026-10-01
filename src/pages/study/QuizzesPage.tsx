@@ -18,6 +18,7 @@ import {
   BookmarkCheck,
   FileText,
   Trash2,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -30,6 +31,7 @@ import {
   PASS_THRESHOLD_PERCENT,
   TopicLevelProgress,
   MIN_SESSION_QUESTIONS,
+  UserAnalytics,
 } from '../../services/supabase/dbService';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
@@ -42,7 +44,7 @@ export const QuizzesPage: React.FC = () => {
   const [topics, setTopics] = useState<TopicData[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [pageMode, setPageMode] = useState<'practice' | 'exam' | 'bookmarks'>('practice');
+  const [pageMode, setPageMode] = useState<'practice' | 'exam' | 'bookmarks' | 'analytics'>('practice');
 
   // Leveled practice state
   const [topicProgress, setTopicProgress] = useState<TopicLevelProgress | null>(null);
@@ -63,6 +65,10 @@ export const QuizzesPage: React.FC = () => {
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
   const [bookmarksList, setBookmarksList] = useState<QuizQuestionData[]>([]);
   const [isBookmarksLoading, setIsBookmarksLoading] = useState<boolean>(false);
+
+  // Analytics
+  const [analytics, setAnalytics] = useState<UserAnalytics | null>(null);
+  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState<boolean>(false);
 
   // Active Quiz State
   const [isActiveQuiz, setIsActiveQuiz] = useState<boolean>(false);
@@ -129,6 +135,24 @@ export const QuizzesPage: React.FC = () => {
 
     loadProgress();
   }, [selectedTopicId, student?.id]);
+
+  // Load analytics when the Analytics tab is opened.
+  useEffect(() => {
+    const loadAnalytics = async () => {
+      if (pageMode !== 'analytics' || !student?.id) return;
+      setIsAnalyticsLoading(true);
+      try {
+        const data = await dbService.getUserAnalytics(student.id);
+        setAnalytics(data);
+      } catch (err) {
+        console.error('[QuizzesPage Error] Failed to load analytics:', err);
+      } finally {
+        setIsAnalyticsLoading(false);
+      }
+    };
+
+    loadAnalytics();
+  }, [pageMode, student?.id]);
 
   // Load the full bookmarks list when the Bookmarks tab is opened.
   useEffect(() => {
@@ -400,16 +424,17 @@ export const QuizzesPage: React.FC = () => {
       </div>
 
       {!isActiveQuiz && (
-        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar">
           {[
             { id: 'practice' as const, label: 'Practice', icon: Gauge },
             { id: 'exam' as const, label: 'Exam Mode', icon: FileText },
             { id: 'bookmarks' as const, label: 'Bookmarks', icon: Bookmark },
+            { id: 'analytics' as const, label: 'Analytics', icon: BarChart3 },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setPageMode(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border-b-2 -mb-px transition-colors cursor-pointer ${
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
                 pageMode === tab.id
                   ? 'border-brand-600 text-brand-600 dark:text-brand-400'
                   : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
@@ -601,7 +626,7 @@ export const QuizzesPage: React.FC = () => {
             </Button>
           </Card>
         </div>
-      ) : (
+      ) : pageMode === 'bookmarks' ? (
         /* Bookmarked Questions Review */
         <div className="space-y-4">
           {isBookmarksLoading ? (
@@ -637,6 +662,134 @@ export const QuizzesPage: React.FC = () => {
                 )}
               </Card>
             ))
+          )}
+        </div>
+      ) : (
+        /* Analytics Dashboard */
+        <div className="space-y-6">
+          {isAnalyticsLoading ? (
+            <div className="py-8 flex items-center justify-center gap-3 text-slate-400 text-xs font-semibold">
+              <Loader2 className="w-5 h-5 animate-spin text-brand-500" />
+              <span>Loading analytics...</span>
+            </div>
+          ) : !analytics || analytics.totalAttempted === 0 ? (
+            <div className="p-6 rounded-xl bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-sm text-center">
+              No quiz attempts yet. Start a practice level or exam to see your analytics here.
+            </div>
+          ) : (
+            <>
+              {/* Overall summary */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Card className="p-5 space-y-1">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Overall Accuracy</p>
+                  <p className="text-3xl font-black text-brand-600 dark:text-brand-400">{analytics.overallAccuracy}%</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {analytics.totalCorrect} / {analytics.totalAttempted} correct
+                  </p>
+                </Card>
+
+                <Card className="p-5 space-y-1">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Last 7 Days</p>
+                  <p className="text-3xl font-black text-slate-900 dark:text-white">
+                    {analytics.recent7d?.attempted ?? 0}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    questions attempted
+                    {analytics.previous7d && analytics.previous7d.attempted > 0 && (
+                      <>
+                        {' '}
+                        ({analytics.recent7d && analytics.recent7d.attempted >= analytics.previous7d.attempted ? '+' : ''}
+                        {(analytics.recent7d?.attempted ?? 0) - analytics.previous7d.attempted} vs prior week)
+                      </>
+                    )}
+                  </p>
+                </Card>
+
+                <Card className="p-5 space-y-1">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Strongest Topic</p>
+                  {analytics.topicStats.length > 0 ? (
+                    <>
+                      <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                        {analytics.topicStats[0].topic_name}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{analytics.topicStats[0].accuracy}% accuracy</p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-400">Not enough data yet</p>
+                  )}
+                </Card>
+              </div>
+
+              {/* Per-topic accuracy breakdown */}
+              <Card className="p-5 sm:p-6 space-y-4">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  <span>Accuracy by Topic</span>
+                </div>
+                <div className="space-y-4">
+                  {analytics.topicStats.map((stat) => (
+                    <div key={stat.topic_id} className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="font-bold text-slate-700 dark:text-slate-200 truncate min-w-0">{stat.topic_name}</span>
+                        <span className="text-slate-500 dark:text-slate-400 shrink-0">
+                          {stat.correct}/{stat.attempted} ({stat.accuracy}%)
+                        </span>
+                      </div>
+                      <ProgressBar
+                        value={stat.accuracy}
+                        color={stat.accuracy >= 70 ? 'emerald' : stat.accuracy >= 40 ? 'amber' : 'rose'}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Weakest topics callout */}
+              {analytics.topicStats.length > 1 && (
+                <Card className="p-5 space-y-2 border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    <Target className="w-3.5 h-3.5" />
+                    <span>Focus Area</span>
+                  </div>
+                  <p className="text-sm text-slate-700 dark:text-slate-300">
+                    Your lowest accuracy is in{' '}
+                    <span className="font-bold">{analytics.topicStats[analytics.topicStats.length - 1].topic_name}</span> at{' '}
+                    {analytics.topicStats[analytics.topicStats.length - 1].accuracy}%. Consider practicing this topic next.
+                  </p>
+                </Card>
+              )}
+
+              {/* Daily trend (last 14 days with activity) */}
+              {analytics.dailyTrend.length > 0 && (
+                <Card className="p-5 sm:p-6 space-y-4">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    <span>Recent Activity</span>
+                  </div>
+                  <div className="space-y-2">
+                    {analytics.dailyTrend.map((d) => {
+                      const dayAccuracy = d.attempted > 0 ? Math.round((d.correct / d.attempted) * 100) : 0;
+                      return (
+                        <div key={d.day} className="flex items-center gap-3 text-xs">
+                          <span className="w-20 shrink-0 text-slate-500 dark:text-slate-400">
+                            {new Date(d.day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </span>
+                          <div className="flex-1">
+                            <ProgressBar
+                              value={dayAccuracy}
+                              color={dayAccuracy >= 70 ? 'emerald' : dayAccuracy >= 40 ? 'amber' : 'rose'}
+                            />
+                          </div>
+                          <span className="w-24 shrink-0 text-right text-slate-500 dark:text-slate-400">
+                            {d.correct}/{d.attempted}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              )}
+            </>
           )}
         </div>
       )}

@@ -53,7 +53,6 @@ export const LEVEL_QUESTION_COUNTS: Record<QuizLevel, number> = {
 
 export const LEVEL_ORDER: QuizLevel[] = ['easy', 'medium', 'hard'];
 export const PASS_THRESHOLD_PERCENT = 70;
-/** Below this many available questions, a level is treated as not-yet-startable rather than run as a token-sized session. */
 export const MIN_SESSION_QUESTIONS = 5;
 
 export interface TopicLevelProgress {
@@ -63,6 +62,24 @@ export interface TopicLevelProgress {
   allLevelsPassed: boolean;
   /** Best score (%) per level, null if never attempted. */
   bestScores: Record<QuizLevel, number | null>;
+}
+
+export interface TopicAccuracyStat {
+  topic_id: string;
+  topic_name: string;
+  attempted: number;
+  correct: number;
+  accuracy: number;
+}
+
+export interface UserAnalytics {
+  totalAttempted: number;
+  totalCorrect: number;
+  overallAccuracy: number;
+  topicStats: TopicAccuracyStat[];
+  recent7d: { attempted: number; correct: number } | null;
+  previous7d: { attempted: number; correct: number } | null;
+  dailyTrend: { day: string; attempted: number; correct: number }[];
 }
 
 export interface StudyStreakData {
@@ -564,9 +581,9 @@ export const dbService = {
    * then-filtered client-side) and records the session.
    *
    * The session is sized to min(standard count, what's actually available)
-   * so a thinly-populated topic (e.g. a small specialty) is still startable
-   * rather than permanently blocked — below MIN_SESSION_QUESTIONS available,
-   * it's treated as not-yet-startable instead of running a token-sized quiz.
+   * so a thinly-populated topic is still startable rather than permanently
+   * blocked — below MIN_SESSION_QUESTIONS available, it's treated as
+   * not-yet-startable instead of running a token-sized quiz.
    */
   async startLevelSession(
     userId: string,
@@ -784,6 +801,21 @@ export const dbService = {
     // Preserve bookmark order (most recently bookmarked first).
     const byId = new Map((questions || []).map((q) => [q.id, q]));
     return questionIds.map((id) => byId.get(id)).filter((q): q is QuizQuestionData => !!q);
+  },
+
+  // ==========================================
+  // 3e. ANALYTICS (all server-side aggregation — never loads raw attempts)
+  // ==========================================
+
+  async getUserAnalytics(userId: string): Promise<UserAnalytics | null> {
+    try {
+      const { data, error } = await supabase.rpc('get_user_analytics', { p_user_id: userId });
+      if (error) throw error;
+      return data as UserAnalytics;
+    } catch (e) {
+      console.warn('[Supabase DB Warning] getUserAnalytics:', e);
+      return null;
+    }
   },
 
 
