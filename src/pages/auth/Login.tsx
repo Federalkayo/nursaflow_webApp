@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { HeartPulse, Mail, Lock, User, School, GraduationCap, ArrowRight, CheckCircle2, AlertCircle, Send } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/common/Button';
@@ -8,7 +8,11 @@ import { Card } from '../../components/common/Card';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { login, register, isLoading } = useAuth();
+  const { login, register, isLoading, isAuthenticated } = useAuth();
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 

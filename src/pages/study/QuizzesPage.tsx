@@ -19,6 +19,7 @@ import {
   FileText,
   Trash2,
   BarChart3,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -424,26 +425,38 @@ export const QuizzesPage: React.FC = () => {
       </div>
 
       {!isActiveQuiz && (
-        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar">
-          {[
-            { id: 'practice' as const, label: 'Practice', icon: Gauge },
-            { id: 'exam' as const, label: 'Exam Mode', icon: FileText },
-            { id: 'bookmarks' as const, label: 'Bookmarks', icon: Bookmark },
-            { id: 'analytics' as const, label: 'Analytics', icon: BarChart3 },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setPageMode(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-                pageMode === tab.id
-                  ? 'border-brand-600 text-brand-600 dark:text-brand-400'
-                  : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
-              }`}
-            >
-              <tab.icon className="w-3.5 h-3.5" />
-              {tab.label}
-            </button>
-          ))}
+        <div className="relative">
+          <div
+            className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar"
+            style={{
+              WebkitMaskImage: 'linear-gradient(to right, black 90%, transparent 100%)',
+              maskImage: 'linear-gradient(to right, black 90%, transparent 100%)',
+            }}
+          >
+            {[
+              { id: 'practice' as const, label: 'Practice', icon: Gauge },
+              { id: 'exam' as const, label: 'Exam Mode', icon: FileText },
+              { id: 'bookmarks' as const, label: 'Bookmarks', icon: Bookmark },
+              { id: 'analytics' as const, label: 'Analytics', icon: BarChart3 },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setPageMode(tab.id)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
+                  pageMode === tab.id
+                    ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <tab.icon className="w-3.5 h-3.5" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {/* Scroll hint — only a visual cue, doesn't block taps on content beneath it */}
+          <div className="sm:hidden pointer-events-none absolute right-0 top-0 bottom-0 flex items-center pr-0.5">
+            <ChevronRight className="w-3.5 h-3.5 text-slate-400 animate-pulse" />
+          </div>
         </div>
       )}
 

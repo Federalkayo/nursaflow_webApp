@@ -6,6 +6,7 @@ import { DataProvider } from './context/DataContext';
 import { LayoutWrapper } from './components/layout/LayoutWrapper';
 
 // Page Imports
+import { LandingPage } from './pages/landing/LandingPage';
 import { Login } from './pages/auth/Login';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { AcademicTrackerPage } from './pages/academic/AcademicTrackerPage';
@@ -79,6 +80,22 @@ const ProtectedLayout: React.FC = () => {
   );
 };
 
+const RootRoute: React.FC = () => {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <LandingPage />;
+};
+
+const PublicOnlyLoginRoute: React.FC = () => {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <Login />;
+};
+
 export const App: React.FC = () => {
   return (
     <ThemeProvider>
@@ -86,7 +103,9 @@ export const App: React.FC = () => {
         <DataProvider>
           <BrowserRouter>
             <Routes>
-              <Route path="/login" element={<Login />} />
+              <Route path="/" element={<RootRoute />} />
+              <Route path="/landing" element={<LandingPage />} />
+              <Route path="/login" element={<PublicOnlyLoginRoute />} />
               <Route path="/*" element={<ProtectedLayout />} />
             </Routes>
           </BrowserRouter>

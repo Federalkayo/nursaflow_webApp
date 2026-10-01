@@ -3,6 +3,7 @@ import { StudentProfile } from '../types';
 import { authService } from '../services/supabase/authService';
 import { dbService } from '../services/supabase/dbService';
 import { Session } from '@supabase/supabase-js';
+import { HeartPulse } from 'lucide-react';
 
 const IS_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -227,12 +228,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const profile = await authService.buildStudentProfile(session.user);
           setStudent(profile);
         } else if (isMounted) {
+          // If Supabase session is null, verify whether we have a valid cached local student
+          const savedStr = localStorage.getItem('nursaflow_student');
+          if (savedStr) {
+            try {
+              const parsed = JSON.parse(savedStr);
+              if (parsed && parsed.id && IS_UUID_REGEX.test(parsed.id)) {
+                setStudent(parsed);
+                return;
+              }
+            } catch (e) {}
+          }
           setStudent(null);
           localStorage.removeItem('nursaflow_student');
         }
       } catch (e) {
         console.warn('[AuthContext Warning] Failed to check Supabase session:', e);
         if (isMounted) {
+          const savedStr = localStorage.getItem('nursaflow_student');
+          if (savedStr) {
+            try {
+              const parsed = JSON.parse(savedStr);
+              if (parsed && parsed.id && IS_UUID_REGEX.test(parsed.id)) {
+                setStudent(parsed);
+                return;
+              }
+            } catch (e) {}
+          }
           setStudent(null);
           localStorage.removeItem('nursaflow_student');
         }
@@ -357,9 +379,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }}
     >
       {isInitializing ? (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4">
-          <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs font-semibold text-slate-400">Loading NursaFlow Session...</p>
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-6 select-none relative overflow-hidden">
+          {/* Ambient Glowing Aura */}
+          <div className="absolute w-96 h-96 bg-brand-500/15 rounded-full blur-3xl pointer-events-none animate-pulse" />
+          <div className="absolute w-64 h-64 bg-teal-400/10 rounded-full blur-2xl pointer-events-none animate-pulse delay-500" />
+
+          {/* Glowing NursaFlow App Logo Badge */}
+          <div className="relative flex items-center justify-center">
+            <div className="absolute -inset-4 rounded-3xl bg-gradient-to-tr from-brand-600 via-teal-400 to-emerald-400 opacity-45 blur-xl animate-pulse" />
+            <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-tr from-brand-600 via-brand-500 to-teal-400 flex items-center justify-center text-white shadow-2xl shadow-brand-500/50 transform hover:scale-105 transition-transform duration-300">
+              <HeartPulse className="w-10 h-10 animate-bounce" />
+            </div>
+          </div>
+
+          {/* Brand Name & Session Status */}
+          <div className="flex flex-col items-center space-y-2 text-center z-10">
+            <h1 className="text-3xl font-black tracking-tight text-white">
+              Nursa<span className="bg-gradient-to-r from-brand-400 via-teal-300 to-emerald-400 bg-clip-text text-transparent">Flow</span>
+            </h1>
+            <div className="flex items-center space-x-2 text-xs font-semibold text-slate-400 bg-slate-900/80 border border-slate-800/80 px-3.5 py-1.5 rounded-full shadow-inner">
+              <span className="w-2 h-2 rounded-full bg-teal-400 animate-ping" />
+              <span>Loading NursaFlow Session...</span>
+            </div>
+          </div>
         </div>
       ) : (
         children

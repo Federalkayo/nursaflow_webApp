@@ -19,6 +19,14 @@ export const StudyHubPage: React.FC = () => {
 
   const studyModules = [
     {
+      title: 'NCLEX Practice Quizzes',
+      desc: 'Timed multiple-choice drills with immediate rationales & scoring.',
+      path: '/study/quizzes',
+      icon: Zap,
+      count: `${quizzes.length} Practice Quizzes`,
+      color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900',
+    },
+    {
       title: 'Nursing Subjects',
       desc: 'Browse Anatomy, Pharmacology, Med-Surg, Fundamentals & core curricula.',
       path: '/study/subjects',
@@ -33,14 +41,6 @@ export const StudyHubPage: React.FC = () => {
       icon: Layers,
       count: `${flashcards.length} Cards Available`,
       color: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900',
-    },
-    {
-      title: 'NCLEX Practice Quizzes',
-      desc: 'Timed multiple-choice drills with immediate rationales & scoring.',
-      path: '/study/quizzes',
-      icon: Zap,
-      count: `${quizzes.length} Practice Quizzes`,
-      color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900',
     },
     {
       title: 'Interactive Study Plans',

@@ -25,3 +25,4 @@ dist-ssr/
 
 # Temporary test scripts
 scripts/test_*.ts
+.vercel
