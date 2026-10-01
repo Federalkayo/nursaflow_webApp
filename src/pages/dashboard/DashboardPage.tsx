@@ -10,7 +10,6 @@ import {
   Activity,
   ArrowRight,
   BookOpen,
-  Calendar,
   Sparkles,
   ChevronRight,
   Calculator,
@@ -29,6 +28,7 @@ import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { ProgressBar } from '../../components/common/ProgressBar';
 import { Badge } from '../../components/common/Badge';
+import { UpcomingEventsCard } from './UpcomingEventsCard';
 
 export const DashboardPage: React.FC = () => {
   const {
@@ -64,12 +64,6 @@ export const DashboardPage: React.FC = () => {
   const handleQuickAdd = (minutes: number) => {
     addStudyTime(minutes, false);
   };
-
-  const upcomingExams = [
-    { id: 'ex_1', title: 'Pharmacology II Midterm Exam', date: 'Tomorrow, 9:00 AM', location: 'Hall B - Health Sciences', type: 'Exam' },
-    { id: 'ex_2', title: 'Maternal & Child Clinical Care Plan', date: 'Sep 14, 11:59 PM', location: 'Online Portal', type: 'Assignment' },
-    { id: 'ex_3', title: 'Medical-Surgical OSCE Practical', date: 'Sep 18, 2:00 PM', location: 'Simulation Lab 4', type: 'Clinical' },
-  ];
 
   const quickTools = [
     { title: 'Dosage Calculator', path: '/clinical/dosage', icon: Pill, color: 'text-teal-500 bg-teal-500/10' },
@@ -336,36 +330,7 @@ export const DashboardPage: React.FC = () => {
       {/* Upcoming Exams & Recommended Topics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upcoming Exams & Deadlines */}
-        <Card className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-amber-500" />
-              <span>Upcoming Exams & Deadlines</span>
-            </h3>
-            <Badge variant="warning">{upcomingExams.length} Pending</Badge>
-          </div>
-
-          <div className="space-y-3">
-            {upcomingExams.map((exam) => (
-              <div
-                key={exam.id}
-                className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-4"
-              >
-                <div className="space-y-0.5">
-                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                    {exam.title}
-                  </h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {exam.date} • {exam.location}
-                  </p>
-                </div>
-                <Badge variant={exam.type === 'Exam' ? 'danger' : 'info'}>
-                  {exam.type}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        </Card>
+        <UpcomingEventsCard />
 
         {/* Recommended Nursing Subjects */}
         <Card className="space-y-4">
